@@ -1,0 +1,21 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	"default_agent": "plan",
+	"lsp": true,
+	"permission": {
+		"*": "allow",
+		"read": {
+			"*": "allow",
+			"*.env": "ask",
+			"*.env.*": "ask",
+			"*.env.example": "allow"
+		},
+		"edit": {
+			"*": "allow",
+			"*.env": "ask",
+			"*.env.*": "ask",
+			"*.env.example": "allow"
+		},
+		"external_directory": "ask"
+	}
+}

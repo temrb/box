@@ -1,0 +1,172 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "build",
+  "lsp": true,
+  "subagent_depth": 1,
+  "compaction": {
+    "auto": true,
+    "preserve_recent_tokens": 8000,
+    "reserved": 172000
+  },
+  "permission": {
+    "*": "allow",
+    "read": {
+      "*": "allow",
+      "*.env": "ask",
+      "*.env.*": "ask",
+      "*.env.example": "allow"
+    },
+    "edit": {
+      "*": "allow",
+      "*.env": "ask",
+      "*.env.*": "ask",
+      "*.env.example": "allow"
+    },
+    "external_directory": "ask"
+  },
+  "agent": {
+    "plan": {
+      "description": "High-intelligence planning and architecture mode",
+      "mode": "primary",
+      "model": "openai/gpt-6-astra",
+      "variant": "high",
+      "prompt": "Operate as a pragmatic planning and architecture agent. Inspect enough relevant repository context to understand the request and its dependencies before proposing changes. Broaden the investigation when uncertainty, cross-cutting behavior, or architectural impact warrants it. Do not modify project files. Use the explore subagent proactively for repository discovery and codebase investigation. Use the scout subagent for external documentation, dependency source, upstream implementation, and API research. Produce concrete implementation plans with affected files, architectural decisions, risks, edge cases, and verification steps. Prefer concise, actionable output over exposition.",
+      "permission": {
+        "edit": "deny",
+        "task": {
+          "*": "deny",
+          "explore": "allow",
+          "scout": "allow"
+        }
+      },
+      "options": {}
+    },
+    "build": {
+      "description": "Implementation mode for making and verifying changes",
+      "mode": "primary",
+      "model": "openai/gpt-5.6-sol",
+      "variant": "medium",
+      "prompt": "Operate as a pragmatic implementation agent. Implement the requested change completely rather than only describing it. Inspect relevant existing code first, preserve project conventions, keep changes focused, and verify the result with appropriate tests, type checks, builds, or other repository-specific checks. Use the explore subagent for focused repository discovery, the scout subagent for external documentation and dependency research, and the general subagent for independent multi-step delegated work when parallelization or separation of concerns is useful. Keep commentary concise.",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "general": "allow",
+          "explore": "allow",
+          "scout": "allow"
+        }
+      },
+      "options": {}
+    },
+    "review": {
+      "description": "Independent read-only code review using GLM-5.3-Flash",
+      "mode": "primary",
+      "model": "bitdeer/zai-org/GLM-5.3-Flash",
+      "variant": "max",
+      "prompt": "Operate as a pragmatic independent code reviewer. Review the current changes for correctness, regressions, security issues, edge cases, maintainability, and missing tests. Prioritize concrete defects over stylistic preferences. Use the explore subagent when additional repository investigation is needed and the scout subagent when external documentation, dependency behavior, or upstream source must be verified. Cite files and locations whenever possible. Do not modify project files.",
+      "permission": {
+        "edit": "deny",
+        "task": {
+          "*": "deny",
+          "explore": "allow",
+          "scout": "allow"
+        }
+      },
+      "options": {}
+    },
+    "general": {
+      "description": "General implementation subagent for delegated multi-step work",
+      "mode": "subagent",
+      "model": "openai/gpt-5.6-luna",
+      "variant": "high",
+      "prompt": "Operate as a focused implementation subagent. Complete the delegated task within its stated scope. Inspect relevant existing code before changing it, preserve project conventions, keep changes narrowly scoped, and verify work when practical. Do not delegate further. Avoid unrelated refactors. Do not read or modify secrets or environment files unless explicitly approved.",
+      "permission": {
+        "task": "deny"
+      },
+      "options": {}
+    },
+    "explore": {
+      "description": "Read-only repository exploration and codebase discovery subagent",
+      "mode": "subagent",
+      "model": "openai/gpt-5.6-luna",
+      "variant": "high",
+      "prompt": "Operate as a focused read-only repository exploration agent. Locate relevant files, symbols, implementations, call paths, tests, configuration, and architectural relationships. Gather enough evidence to answer the delegated investigation accurately. Prefer repository-native search and language tooling. Do not modify files, execute commands that alter repository or system state, or delegate further. Return concise findings with file paths and locations whenever possible.",
+      "permission": {
+        "edit": "deny",
+        "task": "deny"
+      },
+      "options": {}
+    },
+    "scout": {
+      "description": "Read-only external documentation, dependency, upstream, and API research subagent",
+      "mode": "subagent",
+      "model": "openai/gpt-5.6-luna",
+      "variant": "high",
+      "prompt": "Operate as a focused research subagent for external documentation, APIs, dependency behavior, upstream source, standards, release notes, and implementation details. Prefer primary sources and upstream documentation. Inspect local dependency source when useful and permitted. Distinguish verified facts from inference. Do not modify project files, execute state-changing commands, or delegate further. Return concise findings with source references and implementation implications.",
+      "permission": {
+        "edit": "deny",
+        "task": "deny"
+      },
+      "options": {}
+    },
+    "title": {
+      "disable": true,
+      "options": {},
+      "permission": {}
+    }
+  },
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-6-astra": {
+          "limit": {
+            "context": 1000000,
+            "input": 700000,
+            "output": 128000
+          },
+          "id": "gpt-6-astra",
+          "variants": {
+            "high": {
+              "reasoningEffort": "high",
+              "textVerbosity": "low",
+              "reasoningSummary": "concise"
+            }
+          }
+        },
+        "gpt-5.6-sol": {
+          "limit": {
+            "context": 1000000,
+            "input": 700000,
+            "output": 128000
+          },
+          "id": "gpt-5.6-sol",
+          "variants": {
+            "medium": {
+              "reasoningEffort": "medium",
+              "textVerbosity": "low",
+              "reasoningSummary": "concise"
+            }
+          }
+        },
+        "gpt-5.6-luna": {
+          "limit": {
+            "context": 1000000,
+            "input": 700000,
+            "output": 128000
+          },
+          "id": "gpt-5.6-luna",
+          "variants": {
+            "high": {
+              "reasoningEffort": "high",
+              "textVerbosity": "low",
+              "reasoningSummary": "concise"
+            }
+          }
+        }
+      }
+    }
+  },
+  "mode": {},
+  "plugin": [],
+  "command": {},
+  "username": "unknown"
+}

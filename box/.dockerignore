@@ -1,0 +1,10 @@
+# Trims the build context uploaded for `docker build "$bundle_dir"`.
+# Dockerfile (multi-target muse|opencode) COPYs the vendored NodeSource key
+# (keys/nodesource.asc), so both the parent dir and the file are allowlisted
+# below. Both lines are required: a parent excluded by `**` cannot re-include
+# its files, so `!keys/nodesource.asc` alone would stay excluded.
+# (No COPY/ADD of generated harnesses or docs.)
+**
+!Dockerfile
+!keys/
+!keys/nodesource.asc

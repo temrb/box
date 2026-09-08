@@ -1,0 +1,137 @@
+#!/bin/bash -p
+# box-m-login — one-command Meta browser login with a clear terminal link.
+# Runs `muse login` (device flow) inside the sandbox and re-prints the
+# auth.meta.com device URL as a clear banner: an OSC-8 clickable hyperlink
+# plus a plain copy-paste URL plus the short code. The sandbox container has
+# no display/browser by design (no DISPLAY/WAYLAND/xdg-open forwarding), so
+# the link must be opened in a HOST browser manually.
+#
+# Runtime default is AUTO: delegate to `box-m login`, which probes
+# container DNS under runsc first and auto-selects the hardened-runc fallback
+# only if needed (single shared probe in lib/launcher.sh — no duplicate probe
+# here). Docker embedded DNS 127.0.0.11 is unreachable under runsc on VPN
+# hosts, e.g. Proton VPN + systemd-resolved stub, which presents as
+# `login failed: device flow transport error`. The launcher prints the
+# selection (NOTICE + WARNING on fallback, never silent).
+# Pass --docker-fallback to force runc, --runsc to force gVisor.
+# Honors BOX_M_ALLOW_FALLBACK=0 (fail closed instead of falling back).
+# Run from the project root (same constraint as box-m: CWD == project).
+#
+# NOTE: the output filter below is a pure-bash read loop on purpose. An awk
+# filter was tried first and silently swallowed all output while `muse login`
+# waits for approval (mawk block-buffers piped input); `read` returns each
+# line promptly on every host awk/perl/python baseline.
+set -euo pipefail
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+BOX_TOOL=box-m-login
+script_dir=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f -- "${BASH_SOURCE[0]}")")
+launcher="$script_dir/box-m"
+[[ -x "$launcher" ]] || { printf '%s: missing sibling launcher: %s\n' "$BOX_TOOL" "$launcher" >&2; exit 1; }
+# shellcheck source=lib/preflight.sh
+source "$script_dir/lib/preflight.sh"
+# shellcheck source=lib/launcher.sh
+source "$script_dir/lib/launcher.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run]
+       box-m-login --help
+One-command Meta browser login. Prints a clear sign-in link in this
+terminal, then waits for host-browser approval.
+Run from the project root. Runtime is AUTO by default: `box-m login`
+probes container DNS under runsc first and auto-selects the hardened-runc
+fallback only if needed. --docker-fallback forces runc, --runsc forces
+gVisor. Honors BOX_M_ALLOW_FALLBACK=0 (fail closed).
+--dry-run prints the underlying docker command without contacting Docker.
+Auth persists globally in ~/.config/box-m/muse-config/ (shared with
+`box-m login` — one login covers both entry points).
+EOF
+}
+
+# Shared launcher arg parser (single home in lib/launcher.sh) so the
+# --docker-fallback/--runsc/--dry-run tri-state cannot drift from the
+# launchers. box-m-login takes no positionals and no --shell: both arrive in
+# launcher_rest/shell_mode and fail closed below.
+box_parse_launcher_args "$@"
+if ((shell_mode)); then
+  printf '%s: box-m-login takes no --shell (see --help)\n' "$BOX_TOOL" >&2
+  exit 2
+fi
+if ((${#launcher_rest[@]} != 0)); then
+  # shellcheck disable=SC2016 # backticks in the message are an intentional literal.
+  printf '%s: muse login takes no arguments (got `%s`)\n' "$BOX_TOOL" "${launcher_rest[0]}" >&2
+  exit 2
+fi
+
+# AUTO delegates runtime selection to the launcher's shared probe
+# (box_auto_runtime). No duplicate probe here. In --dry-run no daemon is
+# contacted; show the default-runtime command.
+launcher_args=()
+if (( ! fallback_requested && ! explicit_runsc )); then
+  if ((dry_run)); then
+    printf '%s: --dry-run shows the default-runtime command; a live run probes container DNS first.\n' "$BOX_TOOL" >&2
+  fi
+else
+  if ((fallback_requested)); then launcher_args+=(--docker-fallback); fi
+  if ((explicit_runsc)); then launcher_args+=(--runsc); fi
+fi
+if ((dry_run)); then launcher_args+=(--dry-run); fi
+
+if ((dry_run)); then
+  exec "$launcher" "${launcher_args[@]}" login
+fi
+
+printf '%s: opening Meta device flow — copy the link below into your HOST browser.\n' "$BOX_TOOL" >&2
+
+# Stream `muse login` line-by-line; when the device URL appears, re-print it
+# as a banner (OSC-8 hyperlink for clickable terminals + plain URL for
+# copy-paste + short code). The pipeline's `while` runs in a subshell, so
+# pipefail alone would mask a launcher failure (loop exits 0); capture
+# PIPESTATUS[0] under `set +e` and exit with it.
+banner_done=0
+hint_done=0
+login_status=0
+# The banner loop below runs in a subshell, so it cannot export banner_done
+# to the parent: it touches this sentinel on banner print, checked after the
+# loop to detect a silent matcher miss (upstream device-URL shape change).
+banner_sentinel=$(box_mktemp_file box-m-login-banner) || die 'Cannot create banner sentinel.'
+rm -f -- "$banner_sentinel"
+trap 'rm -f -- "$banner_sentinel"' EXIT
+set +e
+"$launcher" "${launcher_args[@]}" login 2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
+  printf '%s\n' "$line"
+  if [[ "$banner_done" -eq 0 ]] && probe_out=$(box_device_url_code "$line"); then
+    url=${probe_out%%$'\n'*}
+    code=${probe_out#*$'\n'}
+    printf '\n===============================================================\n'
+    printf 'SIGN IN — open this link in your HOST browser:\n\n'
+    if [[ -t 1 && "${TERM:-dumb}" != "dumb" && -z "${NO_HYPERLINK:-}" ]]; then
+      printf '\033]8;;%s\033\\%s\033]8;;\033\\\n' "$url" "$url"
+    fi
+    printf '%s\n' "$url"
+    printf 'code: %s\n\nConfirm the code matches, approve, then return here.\n' "$code"
+    printf '===============================================================\n\n'
+    banner_done=1
+    touch -- "$banner_sentinel"
+  elif [[ "$hint_done" -eq 0 ]] && [[ "$line" == *'device flow transport error'* ]]; then
+    printf '\nHINT: container DNS unreachable (runsc + VPN/embedded-DNS).\n'
+    printf 'Re-run without --runsc so box-m-login auto-selects the fallback,\n'
+    printf 'or run: box-m --docker-fallback login\n\n'
+    hint_done=1
+  fi
+done
+login_status=${PIPESTATUS[0]:-1}
+# Post-run matcher-miss hint, success-only: on failure the tool's own error
+# is the signal and a shape-change guess would misdiagnose it. An
+# already-logged-in rerun also lands here (no URL, exit 0) — the hint says
+# so instead of scraping upstream output for login state.
+if ((login_status == 0)) && [[ ! -e "$banner_sentinel" ]]; then
+  printf '\nHINT: login succeeded but no device URL was detected, so no sign-in banner was shown.\n'
+  printf 'If you were already logged in, ignore this; otherwise upstream may have changed\n'
+  # shellcheck disable=SC2016 # backticks are an intentional literal in this message.
+  printf 'the device-URL shape (see `box_device_url_code` in `lib/launcher.sh`).\n\n'
+fi
+set -e
+exit "$login_status"

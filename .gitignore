@@ -1,0 +1,13 @@
+# Secrets — never commit live credentials.
+meta-api-key
+/__opencode.json
+providers.env
+*.providers.env
+
+# Local test scratch (bats HOME override used by validation runs).
+.bats-scratch/
+.bats-home/
+
+.agents
+
+specs
