@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "**/.gitmessage": "git-commit"
+  },
+  "[git-commit]": {
+    "editor.formatOnSave": false
+  }
+}
