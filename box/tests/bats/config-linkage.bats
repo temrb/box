@@ -62,6 +62,29 @@ load helpers
   [[ "$output" == *"unknown tool id"* ]]
 }
 
+@test "image assert warns and skips pin checks on explicit override" {
+  # docker.sh override path: UID/GID still enforced, version + integrity
+  # label checks skipped with a single WARNING (pinned offline via stub).
+  vf="$TEST_TMP/version-muse-override.env"
+  make_muse_version_file "$vf"
+  box_load_version_file "$vf" "$(box_tool_field muse version_format)" $(box_tool_field muse pin_keys)
+  ver=$box_file_version
+  stub="$TEST_TMP/stub-docker-override"
+  {
+    printf '#!/bin/bash\n'
+    printf 'printf "%%s\\n" %q\n' "$host_uid:$host_gid|WRONG-VERSION"
+  } >"$stub"
+  chmod +x -- "$stub"
+  docker_cmd=("$stub")
+  run box_assert_image "some-image:override" "$ver" "$vf" muse 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"explicit image override"* ]]
+  [[ "$output" == *"some-image:override"* ]]
+  # Without the override flag the same label mismatch fails closed.
+  run box_assert_image "some-image:override" "$ver" "$vf" muse 0
+  [ "$status" -ne 0 ]
+}
+
 @test "image assert resolves integrity labels in one combined inspect" {
   # M2: user+version plus all integrity labels must resolve in 2 daemon
   # calls total (1 user+version inspect + 1 combined label inspect),
@@ -110,6 +133,10 @@ load helpers
   [ "$status" -eq 0 ]
   run grep -F '$BOX_CRED_KEYS' "$BUNDLE_DIR/box-o"
   [ "$status" -eq 0 ]
+  run grep -F '$BOX_TERMINAL_KEYS' "$BUNDLE_DIR/box-m"
+  [ "$status" -eq 0 ]
+  run grep -F '$BOX_TERMINAL_KEYS' "$BUNDLE_DIR/box-o"
+  [ "$status" -eq 0 ]
   # No hardcoded network/allowlist literals left in the launchers.
   run grep -n 'box_base_args box-m\|box_base_args box-o' \
     "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o"
@@ -117,10 +144,17 @@ load helpers
   run grep -n 'box_load_credentials "$credentials" "$dry_run" MUSE_CODE_API_KEY' \
     "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o"
   [ "$status" -ne 0 ]
+  run grep -n 'box_forward_keys \(TERM\|COLORTERM\|TERM_PROGRAM\|NO_COLOR\|FORCE_COLOR\|CLICOLOR_FORCE\)' \
+    "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o"
+  [ "$status" -ne 0 ]
 }
 
 @test "config.sh credential allowlist is the single muse key" {
   [ "$BOX_CRED_KEYS" = "MUSE_CODE_API_KEY" ]
+}
+
+@test "config.sh terminal allowlist is the documented terminal set" {
+  [ "$BOX_TERMINAL_KEYS" = "TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION NO_COLOR FORCE_COLOR CLICOLOR_FORCE" ]
 }
 
 @test "registry endpoints match settings.json (muse)" {
@@ -253,6 +287,60 @@ load helpers
     "$BUNDLE_DIR/docs/architecture.md" >"$snippet"
   [ -s "$snippet" ]
   run diff -- "$snippet" "$BUNDLE_DIR/settings.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs cgroup limits match lib/config.sh (no prose drift)" {
+  # architecture.md §10 diagrams the limits; the values must track the single
+  # source in lib/config.sh (m-19 tripwire: changing the config without the
+  # docs fails here).
+  phrase="${BOX_CONTAINER_MEMORY} RAM, ${BOX_CONTAINER_CPUS} CPUs, ${BOX_CONTAINER_PIDS} PIDs"
+  run grep -Fq -- "$phrase" "$BUNDLE_DIR/docs/architecture.md"
+  [ "$status" -eq 0 ] || { echo "architecture.md misses cgroup phrase: $phrase"; return 1; }
+}
+
+@test "docs tmpfs list matches lib/run.sh mounts (no prose drift)" {
+  # The shared base mounts live in box_base_args (lib/run.sh); the §7 prose
+  # must list the same destinations (code uses /home/box/.cache, docs
+  # abbreviate it as ~/.cache). A new mount without a docs update fails here.
+  while IFS= read -r dest; do
+    [[ -n "$dest" ]] || continue
+    case "$dest" in
+      /home/box/*) doc_pat="~/${dest#/home/box/}" ;;
+      *) doc_pat="$dest" ;;
+    esac
+    run grep -Fq -- "$doc_pat" "$BUNDLE_DIR/docs/architecture.md"
+    [ "$status" -eq 0 ] || { echo "architecture.md misses tmpfs $dest (as $doc_pat)"; return 1; }
+  done < <(grep -Eo -- '--tmpfs "?/[^ ":]+' "$BUNDLE_DIR/lib/run.sh" | sed -E 's/^--tmpfs "?//')
+  # The persistence table names the shared .cache tmpfs explicitly.
+  run grep -Fq -- "/home/box/.cache" "$BUNDLE_DIR/docs/operations.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "validation report legacy list matches setup.sh cleanup (no stale drift)" {
+  # REPORT.txt is manual prose; the legacy loop must name the same 6 artifacts
+  # setup.sh deletes (m-24 tripwire: a new legacy name without a report
+  # update fails here).
+  for name in muse-sandbox opencode-sandbox muse-login sb-m sb-o sb-m-login; do
+    run grep -Fq -- "$name" "$BUNDLE_DIR/validation/REPORT.txt"
+    [ "$status" -eq 0 ] || { echo "REPORT.txt misses legacy $name"; return 1; }
+    run grep -Fq -- "$name" "$BUNDLE_DIR/setup.sh"
+    [ "$status" -eq 0 ] || { echo "setup.sh misses legacy $name"; return 1; }
+  done
+  run grep -Fq -- "terminal keys forward" "$BUNDLE_DIR/validation/REPORT.txt"
+  [ "$status" -eq 0 ] || { echo "REPORT.txt misses terminal entry"; return 1; }
+  run grep -Fq -- "theme sync" "$BUNDLE_DIR/validation/REPORT.txt"
+  [ "$status" -eq 0 ] || { echo "REPORT.txt misses theme entry"; return 1; }
+}
+
+@test "docs symlink cap matches lib/preflight.sh (no prose drift)" {
+  # The bounded scan caps at N links (head -n N+1 probes truncation); the §7
+  # prose must name the same N (m-19 tripwire).
+  cap=$(grep -Eo 'symlink_checked > [0-9]+' "$BUNDLE_DIR/lib/preflight.sh" | grep -Eo '[0-9]+' | head -n 1)
+  [ -n "$cap" ]
+  run grep -Fq -- "first $cap links" "$BUNDLE_DIR/docs/architecture.md"
+  [ "$status" -eq 0 ] || { echo "architecture.md misses symlink cap: first $cap links"; return 1; }
+  run grep -Fq -- "head -n $((cap + 1))" "$BUNDLE_DIR/lib/preflight.sh"
   [ "$status" -eq 0 ]
 }
 

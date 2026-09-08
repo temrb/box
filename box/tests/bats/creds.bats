@@ -119,3 +119,26 @@ load helpers
   run box_credentials_filled "$TEST_TMP/nope.env" MUSE_CODE_API_KEY
   [ "$status" -ne 0 ]
 }
+
+@test "creds parser follows a symlink to a valid target (same guards)" {
+  # Symlink policy (preflight.sh): the path is resolved with realpath -e and
+  # every guard (outside-project, owner, mode) runs on the RESOLVED path, so
+  # a dotfile-managed providers.env keeps working.
+  real="$TEST_TMP/real-providers.env"
+  make_creds_file "$real" "MUSE_CODE_API_KEY=symlinked-secret"
+  link="$TEST_TMP/link-providers.env"
+  ln -s "$real" "$link"
+  box_load_credentials "$link" 0 MUSE_CODE_API_KEY
+  [ "${MUSE_CODE_API_KEY:-}" = "symlinked-secret" ]
+}
+
+@test "creds parser rejects a symlink to a bad-mode target" {
+  real="$TEST_TMP/real-badmode.env"
+  make_creds_file "$real" "MUSE_CODE_API_KEY=x"
+  chmod 644 -- "$real"
+  link="$TEST_TMP/link-badmode.env"
+  ln -s "$real" "$link"
+  run box_load_credentials "$link" 0 MUSE_CODE_API_KEY
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mode to 600"* ]]
+}

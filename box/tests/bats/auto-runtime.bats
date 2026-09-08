@@ -131,3 +131,27 @@ timeout() { shift; "$@"; }
   [[ "$(cat -- "$TEST_TMP/out.txt")" == *"auto-selecting hardened-runc fallback for this run."* ]]
   [[ "$(cat -- "$STUB_C_FILE")" == *"getent hosts host.example.com"* ]]
 }
+
+@test "probe fails closed with remediation when the daemon is unavailable" {
+  stub_fail_info() { case "${1:-}" in info) return 1 ;; *) return 0 ;; esac; }
+  docker_cmd=(stub_fail_info)
+  run box_probe_runsc_dns some-image:0 some-net example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Local Docker Engine is unavailable"* ]]
+}
+
+@test "probe fails closed with remediation when the image is missing" {
+  stub_fail_image() { case "${1:-}" in image) return 1 ;; *) return 0 ;; esac; }
+  docker_cmd=(stub_fail_image)
+  run box_probe_runsc_dns some-image:0 some-net example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"build it first"* ]]
+}
+
+@test "probe fails closed with remediation when the network is missing" {
+  stub_fail_network() { case "${1:-}" in network) return 1 ;; *) return 0 ;; esac; }
+  docker_cmd=(stub_fail_network)
+  run box_probe_runsc_dns some-image:0 some-net example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Create the dedicated network"* ]]
+}

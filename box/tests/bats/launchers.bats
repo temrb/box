@@ -12,6 +12,9 @@ _muse_dry_run_env() {
   make_creds_file "$creds" "MUSE_CODE_API_KEY=test-value"
   export BOX_M_CONFIG="$cfg" BOX_M_VERSION_FILE="$vf" \
     BOX_M_ENV_FILE="$creds" BOX_M_PERSIST_DIR="$TEST_TMP/muse-config"
+  # Isolate the host theme input: without this a real host
+  # $XDG_CONFIG_HOME/muse/settings.json (or WARNING) leaks into every dry-run.
+  unset XDG_CONFIG_HOME
 }
 
 _opencode_dry_run_env() {
@@ -63,6 +66,27 @@ _need_docker() {
   run "$BUNDLE_DIR/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" != *"--env MUSE_CODE_API_KEY"* ]]
+}
+
+@test "box-m --dry-run: forwards set terminal keys NAME-only, skips unset" {
+  _need_docker
+  _muse_dry_run_env
+  cd -- "$TEST_PROJ"
+  run env -u TERM -u COLORTERM -u TERM_PROGRAM -u TERM_PROGRAM_VERSION \
+    -u NO_COLOR -u FORCE_COLOR -u CLICOLOR_FORCE \
+    TERM=xterm-256color COLORTERM=truecolor \
+    "$BUNDLE_DIR/box-m" --dry-run --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--env TERM"* ]]
+  [[ "$output" == *"--env COLORTERM"* ]]
+  [[ "$output" != *"--env TERM="* ]]
+  [[ "$output" != *"--env COLORTERM="* ]]
+  [[ "$output" != *"xterm-256color"* ]]
+  [[ "$output" != *"truecolor"* ]]
+  [[ "$output" != *"--env TERM_PROGRAM"* ]]
+  [[ "$output" != *"--env NO_COLOR"* ]]
+  [[ "$output" != *"--env FORCE_COLOR"* ]]
+  [[ "$output" != *"--env CLICOLOR_FORCE"* ]]
 }
 
 @test "box-m --dry-run: git identity inferred from global git config" {
@@ -150,8 +174,24 @@ _need_docker() {
   run "$BUNDLE_DIR/box-o" --dry-run --version
   [ "$status" -eq 0 ]
   # The live proof is the empty registry forward_keys (tools.bats) plus the
-  # empty-set no-op (run.bats); dry-run must carry no NAME-only key lines.
+  # empty-set no-op (run.bats); dry-run must carry no NAME-only
+  # credential lines (terminal keys still forward — see below).
   [[ "$output" != *"--env MUSE_CODE_API_KEY"* ]]
+}
+
+@test "box-o --dry-run: forwards set terminal keys NAME-only, skips unset" {
+  _need_docker
+  _opencode_dry_run_env
+  cd -- "$TEST_PROJ"
+  run env -u TERM -u COLORTERM -u TERM_PROGRAM -u TERM_PROGRAM_VERSION \
+    -u NO_COLOR -u FORCE_COLOR -u CLICOLOR_FORCE \
+    TERM=xterm-256color \
+    "$BUNDLE_DIR/box-o" --dry-run --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--env TERM"* ]]
+  [[ "$output" != *"--env TERM="* ]]
+  [[ "$output" != *"xterm-256color"* ]]
+  [[ "$output" != *"--env COLORTERM"* ]]
 }
 
 _installed_layout() {
@@ -223,6 +263,18 @@ _installed_layout() {
   [[ "$output" != *"--disable-sandbox"* ]]
 }
 
+@test "box-m honors a custom INNER_FLAG value end-to-end" {
+  _need_docker
+  _muse_dry_run_env
+  BOX_M_INNER_FLAG='--new-flag'
+  export BOX_M_INNER_FLAG
+  cd -- "$TEST_PROJ"
+  run "$BUNDLE_DIR/box-m" --dry-run -- --foo
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--new-flag"* ]]
+  [[ "$output" != *"--disable-sandbox"* ]]
+}
+
 @test "box-m --dry-run: reverts downgraded safety keys in persisted settings" {
   _need_docker
   _muse_dry_run_env
@@ -242,12 +294,80 @@ _installed_layout() {
   [ "$(jq -r '.model' -- "$persist/settings.json")" = "user-model" ]
 }
 
+@test "box-m --dry-run: syncs missing host theme keys into persisted settings" {
+  _need_docker
+  _muse_dry_run_env
+  mkdir -p -- "$HOME/.config/muse"
+  printf '{"tui":{"theme":"dracula","color_depth":"truecolor"}}\n' \
+    >"$HOME/.config/muse/settings.json"
+  cd -- "$TEST_PROJ"
+  run env -u XDG_CONFIG_HOME "$BUNDLE_DIR/box-m" --dry-run --version
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.tui.theme' -- "$TEST_TMP/muse-config/settings.json")" = "dracula" ]
+  [ "$(jq -r '.tui.color_depth' -- "$TEST_TMP/muse-config/settings.json")" = "truecolor" ]
+  [ "$(jq -r '.model' -- "$TEST_TMP/muse-config/settings.json")" = "$(box_tool_field muse model)" ]
+}
+
+@test "box-m --dry-run: keeps an existing sandbox theme over the host theme" {
+  _need_docker
+  _muse_dry_run_env
+  mkdir -p -- "$HOME/.config/muse"
+  printf '{"tui":{"theme":"dracula"}}\n' >"$HOME/.config/muse/settings.json"
+  persist="$TEST_TMP/muse-config"
+  mkdir -p -- "$persist"
+  jq '.tui = {"theme":"monokai"}' -- "$cfg" >"$persist/settings.json"
+  cd -- "$TEST_PROJ"
+  run env -u XDG_CONFIG_HOME "$BUNDLE_DIR/box-m" --dry-run --version
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.tui.theme' -- "$persist/settings.json")" = "monokai" ]
+}
+
 @test "launchers reject a launcher flag after --shell" {
   _need_docker
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
   run "$BUNDLE_DIR/box-m" --shell --dry-run
   [ "$status" -ne 0 ]
+}
+
+@test "box-m --help prints usage without daemon contact" {
+  cd -- "$TEST_PROJ"
+  run "$BUNDLE_DIR/box-m" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dry-run"* ]]
+}
+
+@test "box-o --help prints usage without daemon contact" {
+  cd -- "$TEST_PROJ"
+  run "$BUNDLE_DIR/box-o" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dry-run"* ]]
+}
+
+@test "box-m --dry-run --shell carries the entrypoint plus passthrough tail" {
+  _need_docker
+  _muse_dry_run_env
+  cd -- "$TEST_PROJ"
+  run "$BUNDLE_DIR/box-m" --dry-run --shell -c 'echo hi'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--entrypoint=/bin/bash"* ]]
+  [[ "$output" == *"-c"* ]]
+  [[ "$output" == *"echo hi"* ]]
+  # Shell runs never inject the muse bypass.
+  [[ "$output" != *"--disable-sandbox"* ]]
+}
+
+@test "box-o --dry-run --shell carries the entrypoint plus passthrough tail" {
+  _need_docker
+  _opencode_dry_run_env
+  cd -- "$TEST_PROJ"
+  run "$BUNDLE_DIR/box-o" --dry-run --shell -c 'echo hi'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--entrypoint=/bin/bash"* ]]
+  [[ "$output" == *"-c"* ]]
+  [[ "$output" == *"echo hi"* ]]
 }
 
 @test "box-m-login --help prints usage without daemon contact" {

@@ -7,6 +7,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
 BOX_TOOL=box-m
+# 1-line variant of the canonical self-dir bootstrap (see lib/tools.sh).
 script_dir=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f -- "${BASH_SOURCE[0]}")")
 # shellcheck source=lib/preflight.sh
 source "$script_dir/lib/preflight.sh"
@@ -72,9 +73,9 @@ config=$(box_resolve_config "$config_raw")
 version_file=${BOX_M_VERSION_FILE:-$HOME/.config/$(box_tool_field muse config_dir)/$(box_tool_field muse version_file)}
 # shellcheck disable=SC2046 # word-splitting registry pin_keys into allowlist args is intentional.
 box_load_version_file "$version_file" "$(box_tool_field muse version_format)" $(box_tool_field muse pin_keys)
-# SHAs are validated inside lib/pins.sh, recorded in image labels (see
-# Dockerfile --target muse), and compared at run by box_assert_image; only the
-# version feeds the image tag.
+# SHAs are validated by box_load_version_file in lib/preflight.sh (threaded
+# via lib/pins.sh), recorded in image labels (see Dockerfile --target muse),
+# and compared at run by box_assert_image; only the version feeds the image tag.
 file_version=$box_file_version
 
 # Shared validator (lib/run.sh): primary BOX_M_* with BOX_O_* fallback.
@@ -104,6 +105,13 @@ muse_persist_dir=$(box_ensure_persistent_config_dir "$muse_persist_raw")
 # preserving model, reasoning_effort, and unknown keys.
 box_seed_writable_config "$config" "$muse_persist_dir/settings.json"
 box_enforce_safe_settings "$config" "$muse_persist_dir/settings.json"
+# One-way host→persist TUI theme sync: fill the theme keys missing from the
+# persisted file from the host-native Muse settings (when present). Existing
+# sandbox values always win — in-sandbox /theme choices persist globally and
+# are never clobbered, and later host changes do not propagate (use
+# in-sandbox /theme to change the sandbox theme). Best-effort: a
+# missing/unusable host file never blocks launch.
+box_sync_host_tui_theme "${XDG_CONFIG_HOME:-$HOME/.config}/muse/settings.json" "$muse_persist_dir/settings.json"
 
 # Isolated Docker CLI configuration to protect against host proxy/credential poisoning.
 box_docker_cli "$HOME/.config/$(box_tool_field muse config_dir)/docker-cli"
@@ -169,6 +177,11 @@ box_maybe_tty
 # when unset.
 # shellcheck disable=SC2046 # word-splitting registry forward_keys is intentional.
 box_forward_keys $(box_tool_field muse forward_keys)
+# Terminal capability forwarding (same NAME-only helper): the TUI resolves
+# color depth from host terminal variables, and `docker run -t` alone leaves
+# them unset in-container. Non-secret; skipped when unset.
+# shellcheck disable=SC2086 # word-splitting BOX_TERMINAL_KEYS is intentional.
+box_forward_keys $BOX_TERMINAL_KEYS
 
 # Opt-in supplementary host groups; automatic forwarding of all host groups
 # would broaden access to host-mounted content without a deliberate choice.

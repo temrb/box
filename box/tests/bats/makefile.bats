@@ -112,3 +112,16 @@ load helpers
   [[ "$output" == *"check-pins.sh"* ]]
   [[ "$output" == *"gen-pins.sh"* ]]
 }
+
+@test "regen-validation invokes the launcher via --shell -c (not -- passthrough)" {
+  # M-1 pin: `box-o --shell -- opencode debug config` lands as
+  # `bash -- opencode debug config` (exit 127: opencode treated as a script
+  # file). The only correct shape is `--shell -c 'opencode debug config'`
+  # (cf. troubleshooting.md); merely dropping `--` does not fix it.
+  # The forbidden-shape grep skips comment lines so the explanatory comment
+  # in regen-validation.sh may name the wrong shape.
+  run grep -F -- "--shell -c 'opencode debug config'" "$BUNDLE_DIR/regen-validation.sh"
+  [ "$status" -eq 0 ]
+  run bash -c 'grep -v "^[[:space:]]*#" -- "$1" | grep -Fq -- "--shell -- opencode"' _ "$BUNDLE_DIR/regen-validation.sh"
+  [ "$status" -ne 0 ]
+}

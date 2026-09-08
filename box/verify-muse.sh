@@ -107,7 +107,7 @@ command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
 # code — including 4xx without credentials — proves TCP+TLS egress. Record
 # both the curl exit and the HTTP code: FAIL on transport failure (rc != 0)
 # or empty/000 code.
-provider_code=$(curl --silent --show-error --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://api.meta.ai/v1 2>/dev/null); provider_rc=$?
+provider_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://api.meta.ai/v1 2>/dev/null); provider_rc=$?
 [[ "$provider_rc" -eq 0 && -n "${provider_code:-}" && "$provider_code" != "000" ]] \
   || { echo "FAIL: outbound HTTPS to api.meta.ai/v1 unreachable (curl rc=$provider_rc http=${provider_code:-none})" >&2; exit 1; }
 echo "Outbound HTTPS to api.meta.ai/v1 (HTTP $provider_code): PASS"
@@ -116,7 +116,7 @@ echo "Outbound HTTPS to api.meta.ai/v1 (HTTP $provider_code): PASS"
 # for runsc + Docker embedded DNS (127.0.0.11) failures that present as
 # `login failed: device flow transport error` while api.meta.ai/v1 may
 # already be covered above.
-auth_code=$(curl --silent --show-error --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://auth.meta.com/ 2>/dev/null); auth_rc=$?
+auth_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://auth.meta.com/ 2>/dev/null); auth_rc=$?
 [[ "$auth_rc" -eq 0 && -n "${auth_code:-}" && "$auth_code" != "000" ]] \
   || { echo "FAIL: outbound HTTPS to auth.meta.com unreachable (curl rc=$auth_rc http=${auth_code:-none}; muse login device flow will fail)" >&2; exit 1; }
 echo "Outbound HTTPS to auth.meta.com (HTTP $auth_code): PASS"
@@ -143,8 +143,11 @@ else
 fi
 
 # Assert configuration file validity (model, approvals, telemetry, endpoint).
-# Every jq path has a has() pre-assert so a missing key fails closed instead
-# of comparing null (jq -e returns 0 on null without it).
+# Every jq path has a has() pre-assert as defense-in-depth: `jq -e` already
+# exits 1 on a missing-key compare against a non-null literal (and on bare
+# null), so the guards are redundant-but-harmless here — but `jq -e` exits 0
+# on `.x == null` when the key is missing (null==null is true), so the guards
+# are not universally redundant. Keep them.
 test -f /home/box/.config/muse/settings.json || { echo 'FAIL: settings.json missing' >&2; exit 1; }
 jq -e 'has("schema_version") and .schema_version == 1' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: settings.json schema_version != 1' >&2; exit 1; }
 jq -e 'has("api") and (.api|has("base_url")) and .api.base_url == "https://api.meta.ai/v1"' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: invalid API base URL' >&2; exit 1; }
@@ -206,15 +209,24 @@ if ! grep -qE -- '^CapBnd:[[:space:]]*0+[[:space:]]*$' /proc/self/status; then
   echo 'WARNING: nonzero CapBnd (tolerance-graded under runsc; check CapEff==0 + NoNewPrivs==1 above)'
   box_warnings=$((box_warnings+1))
 fi
-# Effective caps must be empty: fail if capsh reports any named capability
-# in the Current or Bounding set. NOTE: `Current:` has a colon while
-# `Bounding set` has none — the alternation must match both spellings.
+# Current caps must be empty (always FAIL); the Bounding set is graded like
+# CapBnd above (FAIL on runc, WARNING on runsc/unset) so the runsc tolerance
+# can actually tolerate. NOTE: `Current:` has a colon while `Bounding set`
+# has none — the patterns must match both spellings.
 # Pipefail-safe: capture capsh output first so a SIGPIPE from
 # `capsh | grep` cannot fail open; grep reads a herestring (no pipe).
 capsh_out=$(capsh --print 2>/dev/null) || { echo 'FAIL: capsh unavailable' >&2; exit 1; }
-if grep -E -- '^(Current:|Bounding set) .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
-  echo 'FAIL: capsh reports effective/bounding capabilities' >&2
+if grep -E -- '^Current: .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  echo 'FAIL: capsh reports effective capabilities' >&2
   exit 1
+fi
+if grep -E -- '^Bounding set .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  if [[ "${BOX_RUNTIME:-runsc}" == runc ]]; then
+    echo 'FAIL: capsh reports bounding capabilities under runc' >&2
+    exit 1
+  fi
+  echo 'WARNING: capsh reports bounding capabilities (tolerance-graded under runsc; check Current above)'
+  box_warnings=$((box_warnings+1))
 fi
 echo 'Capability stripping (CapEff==0, NoNewPrivs==1): PASS'
 # Prove /etc/passwd is the container file, not the host file.
@@ -309,7 +321,7 @@ fi
 
 echo "================================================================="
 if ((box_warnings > 0)); then
-  echo "ALL CONTAINER & MUSE CODE READINESS ASSERTIONS PASSED WITH $box_warnings WARNING(S) (see WARNING lines above; tolerated: CapBnd under runsc, bwrap/unshare success, BOX_ALLOW_PROXY=1, ~/.docker presence, unset BOX_RUNTIME)"
+  echo "ALL CONTAINER & MUSE CODE READINESS ASSERTIONS PASSED WITH $box_warnings WARNING(S) (see WARNING lines above; tolerated: CapBnd/Bounding set under runsc, bwrap/unshare success, BOX_ALLOW_PROXY=1, unset BOX_RUNTIME)"
 else
   echo "ALL CONTAINER & MUSE CODE READINESS ASSERTIONS PASSED"
 fi

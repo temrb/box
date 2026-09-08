@@ -190,7 +190,13 @@ RUN set -euo pipefail; \
 # part of `npm install -g` (platform binaries need them); the build runs on
 # an isolated network with no secrets, and the runtime container drops all
 # capabilities with no-new-privileges under gVisor.
-RUN set -euo pipefail; \
+# npm cache mount (BuildKit): the 3 `npm pack` tarballs + `npm install -g`
+# below re-download on every build without it. The mount persists across
+# builds outside the image, so no `npm cache clean` is needed (cleaning here
+# would wipe the persistent cache); the image stays small because the mount
+# is never committed.
+RUN --mount=type=cache,target=/root/.npm \
+    set -euo pipefail; \
     test -n "${OPENCODE_VERSION:-}" && test -n "${OPENCODE_NPM_INTEGRITY:-}" && test -n "${OPENCODE_NPM_INTEGRITY_LINUX_X64:-}" && test -n "${OPENCODE_NPM_INTEGRITY_LINUX_ARM64:-}"; \
     case "$TARGETARCH" in \
       amd64|arm64) ;; \
@@ -217,7 +223,6 @@ RUN set -euo pipefail; \
     done \
     && cd / && rm -rf "$pack_dir"; trap - EXIT; \
     npm install -g --no-audit --no-fund "opencode-ai@${OPENCODE_VERSION}"; \
-    npm cache clean --force; \
     installed_version=$(opencode --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | head -n 1); \
     test "$installed_version" = "$OPENCODE_VERSION"; \
     npm_bin=$(command -v opencode); \

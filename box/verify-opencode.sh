@@ -108,7 +108,7 @@ command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
 # /connect, so any stable public HTTPS URL proves TCP+TLS). Any HTTP
 # response code — including 4xx — proves egress. FAIL on transport failure
 # (rc != 0) or empty/000 code.
-egress_code=$(curl --silent --show-error --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/opencode-ai 2>/dev/null); egress_rc=$?
+egress_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/opencode-ai 2>/dev/null); egress_rc=$?
 [[ "$egress_rc" -eq 0 && -n "${egress_code:-}" && "$egress_code" != "000" ]] \
   || { echo "FAIL: outbound HTTPS to registry.npmjs.org/opencode-ai unreachable (curl rc=$egress_rc http=${egress_code:-none})" >&2; exit 1; }
 echo "Outbound HTTPS to registry.npmjs.org/opencode-ai (HTTP $egress_code): PASS"
@@ -133,8 +133,10 @@ else
   exit 1
 fi
 
-# Assert configuration file validity with has() pre-asserts on every path
-# (a missing key must fail closed, not compare null).
+# Assert configuration file validity. Compares against non-null literals fail
+# closed via `jq -e` alone (a missing key exits 1); has() pre-asserts are
+# kept as defense-in-depth where present (not universally redundant: `jq -e`
+# exits 0 on `.x == null` when the key is missing, since null==null is true).
 test -f /home/box/.config/opencode/opencode.json || { echo 'FAIL: opencode.json missing' >&2; exit 1; }
 jq -e '.permission.read["*.env"] == "ask"' /home/box/.config/opencode/opencode.json >/dev/null \
   || { echo 'FAIL: opencode.json permission.read["*.env"] != ask' >&2; exit 1; }
@@ -224,15 +226,24 @@ if ! grep -qE -- '^CapBnd:[[:space:]]*0+[[:space:]]*$' /proc/self/status; then
   echo 'WARNING: nonzero CapBnd (tolerance-graded under runsc; check CapEff==0 + NoNewPrivs==1 above)'
   box_warnings=$((box_warnings+1))
 fi
-# Effective caps must be empty: fail if capsh reports any named capability
-# in the Current or Bounding set. NOTE: `Current:` has a colon while
-# `Bounding set` has none — the alternation must match both spellings.
+# Current caps must be empty (always FAIL); the Bounding set is graded like
+# CapBnd above (FAIL on runc, WARNING on runsc/unset) so the runsc tolerance
+# can actually tolerate. NOTE: `Current:` has a colon while `Bounding set`
+# has none — the patterns must match both spellings.
 # Pipefail-safe: capture capsh output first so a SIGPIPE from
 # `capsh | grep` cannot fail open; grep reads a herestring (no pipe).
 capsh_out=$(capsh --print 2>/dev/null) || { echo 'FAIL: capsh unavailable' >&2; exit 1; }
-if grep -E -- '^(Current:|Bounding set) .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
-  echo 'FAIL: capsh reports effective/bounding capabilities' >&2
+if grep -E -- '^Current: .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  echo 'FAIL: capsh reports effective capabilities' >&2
   exit 1
+fi
+if grep -E -- '^Bounding set .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  if [[ "${BOX_RUNTIME:-runsc}" == runc ]]; then
+    echo 'FAIL: capsh reports bounding capabilities under runc' >&2
+    exit 1
+  fi
+  echo 'WARNING: capsh reports bounding capabilities (tolerance-graded under runsc; check Current above)'
+  box_warnings=$((box_warnings+1))
 fi
 echo 'Capability stripping (CapEff==0, NoNewPrivs==1): PASS'
 # Prove /etc/passwd is the container file, not the host file.
@@ -315,7 +326,7 @@ fi
 
 echo "================================================================="
 if ((box_warnings > 0)); then
-  echo "ALL CONTAINER & OPENCODE READINESS ASSERTIONS PASSED WITH $box_warnings WARNING(S) (see WARNING lines above; tolerated: CapBnd under runsc, unshare success, BOX_ALLOW_PROXY=1, ~/.docker presence, effective-config/model omission, unset BOX_RUNTIME)"
+  echo "ALL CONTAINER & OPENCODE READINESS ASSERTIONS PASSED WITH $box_warnings WARNING(S) (see WARNING lines above; tolerated: CapBnd/Bounding set under runsc, unshare success, BOX_ALLOW_PROXY=1, effective-config/model omission, unset BOX_RUNTIME)"
 else
   echo "ALL CONTAINER & OPENCODE READINESS ASSERTIONS PASSED"
 fi

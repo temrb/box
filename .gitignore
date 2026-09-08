@@ -1,6 +1,6 @@
 # Secrets — never commit live credentials.
 meta-api-key
-/__opencode.json
+/opencode.json
 providers.env
 *.providers.env
 

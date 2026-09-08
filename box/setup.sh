@@ -115,8 +115,14 @@ for _setup_id in $box_tool_ids; do
   _setup_cfgs+=("$HOME/.config/$(box_tool_field "$_setup_id" config_dir)")
 done
 install -d -m 700 -- "${_setup_cfgs[@]}"
+# install -d sets the mode only on creation; repair it on re-runs like the
+# persist dir below (secrets inside are 600, but the parent must stay 700).
+chmod 700 -- "${_setup_cfgs[@]}" \
+  || die "Cannot secure config dirs."
 unset _setup_id _setup_cfgs
 install -d -m 755 -- "$HOME/.local/bin" "$HOME/.local/bin/lib"
+chmod 755 -- "$HOME/.local/bin" "$HOME/.local/bin/lib" \
+  || die "Cannot secure install dirs."
 
 # Persistent global Muse config (auth.json, .trust.json): user-level login
 # shared across projects. Mode 700, symlink refusal, idempotent. The launcher
@@ -298,10 +304,13 @@ _setup_first=${box_tool_ids%% *}
 setup_use_cli "$_setup_first"
 unset _setup_first
 if _setup_runtimes=$("${docker_cmd[@]}" info --format '{{json .Runtimes}}' 2>/dev/null); then
-  case "$_setup_runtimes" in
-    *'"runsc"'*) setup_ok "runtime runsc (gVisor) registered" ;;
-    *) setup_warn "runtime 'runsc' not registered; default runs fail closed until gVisor is installed (docs/operations.md §5) or you use --docker-fallback." ;;
-  esac
+  if ! command -v jq >/dev/null; then
+    setup_warn "cannot query Docker runtimes; jq is required."
+  elif printf '%s' "$_setup_runtimes" | jq -e --arg w runsc 'has($w)' >/dev/null 2>&1; then
+    setup_ok "runtime runsc (gVisor) registered"
+  else
+    setup_warn "runtime 'runsc' not registered; default runs fail closed until gVisor is installed (docs/operations.md §5) or you use --docker-fallback."
+  fi
 else
   setup_warn "cannot query Docker runtimes; ensure the Engine is running."
 fi
@@ -319,26 +328,27 @@ for _setup_id in $box_tool_ids; do
 done
 unset _setup_id _setup_vkey
 # NODE_VERSION is opencode-owned (only npm-pinned tool pins a toolchain);
-# removing opencode would require dropping it from this status line.
-setup_ok "version pins validated ($_setup_versions; node $NODE_VERSION)"
+# the `${VAR:+...}` expansion stays safe under `set -u` when opencode is
+# absent (no node suffix then), so removing opencode never crashes setup here.
+setup_ok "version pins validated ($_setup_versions${NODE_VERSION:+; node $NODE_VERSION})"
 unset _setup_versions
 
 setup_step "[4/5] Building images (u${host_uid}/g${host_gid})"
 if ((setup_skip_build)); then
   setup_ok "image builds skipped via --skip-build (configs/launchers/networks still installed)"
 else
-# Single build home (lib/build.sh): previously duplicated `docker build`
-# blocks lived here and in the Makefile recipes (with grep sync asserts in
-# check-pins.sh); both now delegate to lib/build.sh.
-for _setup_id in $box_tool_ids; do
-if [[ -z "$setup_only" || "$setup_only" == "$_setup_id" ]]; then
-_setup_vkey=$(box_tool_field "$_setup_id" pin_keys); _setup_vkey=${_setup_vkey%% *}
-setup_step "-> $(box_tool_field "$_setup_id" image_prefix):${!_setup_vkey}-u${host_uid}-g${host_gid}"
-box_build_image "$_setup_id" "$bundle_dir"
-setup_ok "$_setup_id image built + labels verified"
-fi
-done
-unset _setup_id _setup_vkey
+  # Single build home (lib/build.sh): previously duplicated `docker build`
+  # blocks lived here and in the Makefile recipes (with grep sync asserts in
+  # check-pins.sh); both now delegate to lib/build.sh.
+  for _setup_id in $box_tool_ids; do
+    if [[ -z "$setup_only" || "$setup_only" == "$_setup_id" ]]; then
+      _setup_vkey=$(box_tool_field "$_setup_id" pin_keys); _setup_vkey=${_setup_vkey%% *}
+      setup_step "-> $(box_tool_field "$_setup_id" image_prefix):${!_setup_vkey}-u${host_uid}-g${host_gid}"
+      box_build_image "$_setup_id" "$bundle_dir"
+      setup_ok "$_setup_id image built + labels verified"
+    fi
+  done
+  unset _setup_id _setup_vkey
 fi
 
 # Only remind about one-time setup that is still missing (avoids confusion

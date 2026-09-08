@@ -101,6 +101,9 @@ unset _pins_id _pins_vkey
 # grades them, so drift means launcher and harness permanently disagree.
 # api.base_url is already cross-checked by the loop above; the other three
 # are asserted here as the exact jq comparisons the partial must contain.
+# Muse-only registry-pattern exception (like the opencode-owned Node rows
+# below): removing muse would require dropping this block, and any similar
+# future tool needs its own safety-key block here.
 _pins_seed="$bundle_dir/$(box_tool_field muse config_file)"
 _pins_harness="$bundle_dir/verify.d/40-readiness-muse.sh"
 _pins_mode=$(jq -e -r '.approval_mode | strings' -- "$_pins_seed") \
@@ -146,10 +149,13 @@ unset _pins_id _pins_tgt
     printf '| %s `%s` (`%s`) | `%s` |\n' "$(box_tool_field "$_pins_id" display)" "$_pins_vkey" "$(box_tool_field "$_pins_id" version_file)" "${!_pins_vkey}"
   done
   # Node toolchain rows are opencode-owned (only npm-pinned tool needs a
-  # toolchain): adding tools adds version rows via the loop above, but
-  # removing opencode would require dropping these two rows.
-  printf '| Node `NODE_VERSION` (`version-opencode.env`) | `%s` |\n' "$NODE_VERSION"
-  printf '| NodeSource `NODESOURCE_FINGERPRINT` (`version-opencode.env`) | `%s` |\n' "$NODESOURCE_FINGERPRINT"
+  # toolchain): adding tools adds version rows via the loop above. The guard
+  # below skips these rows when opencode is absent (safe under `set -u`),
+  # so removing opencode never crashes the generator here.
+  if [[ -n "${NODE_VERSION:-}" && -n "${NODESOURCE_FINGERPRINT:-}" ]]; then
+    printf '| Node `NODE_VERSION` (`version-opencode.env`) | `%s` |\n' "$NODE_VERSION"
+    printf '| NodeSource `NODESOURCE_FINGERPRINT` (`version-opencode.env`) | `%s` |\n' "$NODESOURCE_FINGERPRINT"
+  fi
   printf '<!-- pin-table-end -->\n'
 } >"$new_block" || die 'Cannot render pin table.'
 unset _pins_targets_pipe _pins_targets_md _pins_id _pins_vkey

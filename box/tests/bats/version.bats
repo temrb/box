@@ -201,3 +201,17 @@ _parse() {
   run _parse muse "$vf"
   [ "$status" -eq 0 ]
 }
+
+@test "version parser rejects whitespace around the key or equals" {
+  unset project
+  vf="$TEST_TMP/space-key.env"
+  make_muse_version_file "$vf"
+  printf 'MUSE_VERSION =1.0.3-R2198.1\n' >>"$vf"
+  run _parse muse "$vf"
+  [ "$status" -ne 0 ]
+  vf="$TEST_TMP/space-val.env"
+  make_muse_version_file "$vf"
+  printf 'MUSE_VERSION= 1.0.3-R2198.1\n' >>"$vf"
+  run _parse muse "$vf"
+  [ "$status" -ne 0 ]
+}

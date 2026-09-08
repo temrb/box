@@ -21,8 +21,11 @@ else
 fi
 
 # Assert configuration file validity (model, approvals, telemetry, endpoint).
-# Every jq path has a has() pre-assert so a missing key fails closed instead
-# of comparing null (jq -e returns 0 on null without it).
+# Every jq path has a has() pre-assert as defense-in-depth: `jq -e` already
+# exits 1 on a missing-key compare against a non-null literal (and on bare
+# null), so the guards are redundant-but-harmless here — but `jq -e` exits 0
+# on `.x == null` when the key is missing (null==null is true), so the guards
+# are not universally redundant. Keep them.
 test -f /home/box/.config/muse/settings.json || { echo 'FAIL: settings.json missing' >&2; exit 1; }
 jq -e 'has("schema_version") and .schema_version == 1' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: settings.json schema_version != 1' >&2; exit 1; }
 jq -e 'has("api") and (.api|has("base_url")) and .api.base_url == "https://api.meta.ai/v1"' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: invalid API base URL' >&2; exit 1; }

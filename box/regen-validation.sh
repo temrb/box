@@ -5,6 +5,12 @@
 # temp file), and the permission pin is diffed field-wise (the effective merged
 # config adds defaults the shipped file never carries, so a full-file diff
 # would always fail; there is no model or provider pin — pure /connect).
+# Only `.permission` is pinned by design: other top-level keys (e.g.
+# `default_agent`, `agent`, `provider`, `compaction`) are intentionally
+# excluded because the effective merged config adds upstream defaults and
+# user-chosen values the shipped file never carries. Shipped-vs-effective
+# drift outside `.permission` (e.g. `default_agent: plan` vs `build`) passes
+# silently and is expected.
 # Requires a built image + running Engine.
 # Usage: regen-validation.sh [--check]  (--check diffs field-wise without rewriting)
 set -euo pipefail
@@ -65,7 +71,12 @@ trap cleanup_regen EXIT
 # object key whose name looks secret-shaped (case-insensitive) is replaced,
 # not just `apiKey`, so new credential-shaped merged fields cannot land in
 # the checked-in artifact.
-if ! (cd -- "$scratch" && "$launcher" --shell -- opencode debug config 2>"$effective_err" \
+# Shell invocation shape (pinned by tests/bats/makefile.bats): `--shell -c
+# 'opencode debug config'` so the launcher's `--entrypoint=/bin/bash` receives
+# `-c` plus the command. `--shell -- opencode debug config` is wrong: bash
+# would treat `opencode` as a script file (exit 127); merely dropping `--`
+# does not fix it.
+if ! (cd -- "$scratch" && "$launcher" --shell -c 'opencode debug config' 2>"$effective_err" \
     | jq -e 'walk(if type == "object" then with_entries(if (.key | ascii_downcase | test("apikey|api_key|token|secret|passwd|password|authorization|credential|private_key")) then .value = "validation-placeholder" else . end) else . end)' \
     >"$redacted"); then
   cat -- "$effective_err" >&2 || true
@@ -74,7 +85,9 @@ fi
 
 if ((check_only)); then
   # Field-wise --check (same oracle as the regen path): full-file diff is
-  # brittle to upstream defaults (agents/openai/compaction).
+  # brittle to upstream defaults (agents/openai/compaction). Only
+  # `.permission` is pinned; drift elsewhere is intentionally ignored (see
+  # the header comment).
   check_field 'permission' '.permission' "$shipped" "$redacted"
   ((fail == 0)) || die 'Pinned sections differ; run make regen-validation.'
   printf '%s: PASS (permission section matches container effective config)\n' "$BOX_TOOL"

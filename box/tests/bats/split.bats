@@ -18,6 +18,10 @@ load helpers
   project=/etc
   run box_preflight_denylist
   [ "$status" -ne 0 ]
+  # Reset to the scratch project before the symlink scan: without this the
+  # scan walks /etc (environment-dependent: permission-denied vs first-link
+  # target), not the planted TEST_PROJ/evil link this test means to grade.
+  project="$TEST_PROJ"
   ln -s /etc -- "$TEST_PROJ/evil"
   box_preflight_home
   box_preflight_credentials
@@ -98,28 +102,35 @@ load helpers
 
 @test "split libs expose every entry point (no monolith)" {
   [ ! -e "$BUNDLE_DIR/lib/common.sh" ]
-  for fn in die box_realpath box_mktemp_file box_mktemp_dir box_preflight_project box_preflight_denylist box_preflight_home box_preflight_credentials box_preflight_tool_dirs box_preflight_ipc box_preflight_symlinks box_preflight_git box_assert_outside_project     box_assert_owner_mode box_resolve_config box_load_version_file box_load_credentials box_credentials_filled box_require_tool box_tool_field box_tool_id_for_launcher box_docker_cli box_assert_engine box_assert_image box_assert_network box_assert_network_policy box_ensure_network box_assert_runtime box_docker_exec box_parse_launcher_args box_check_fallback box_project_identity box_extra_gids box_ensure_persistent_config_dir box_seed_writable_config box_enforce_safe_settings box_probe_runsc_dns box_auto_runtime box_maybe_auto_runtime box_device_url_code box_git_identity box_infer_git_identity box_base_args box_forward_keys box_runtime_signal box_maybe_tty box_muse_bypass box_usage_common_flags box_load_all_pins box_print_pin box_docker_base_digest box_assert_no_default_args box_assert_tarball_pins box_assert_shell_placement box_assert_build_delegation box_pin_block box_image_tag box_image_tag_for_version box_build_image box_clean_image box_bundle_dir; do
+  for fn in die box_realpath box_mktemp_file box_mktemp_dir box_preflight_project box_preflight_denylist box_preflight_home box_preflight_credentials box_preflight_tool_dirs box_preflight_ipc box_preflight_symlinks box_preflight_git box_assert_outside_project     box_assert_owner_mode box_resolve_config box_load_version_file box_load_credentials box_credentials_filled box_require_tool box_tool_field box_tool_id_for_launcher box_docker_cli box_assert_engine box_assert_image box_assert_network box_assert_network_policy box_ensure_network box_assert_runtime box_docker_exec box_parse_launcher_args box_check_fallback box_project_identity box_extra_gids box_ensure_persistent_config_dir box_seed_writable_config box_write_if_changed box_enforce_safe_settings box_sync_host_tui_theme box_probe_runsc_dns box_auto_runtime box_maybe_auto_runtime box_device_url_code box_git_identity box_infer_git_identity box_base_args box_forward_keys box_runtime_signal box_maybe_tty box_muse_bypass box_usage_common_flags box_load_all_pins box_print_pin box_docker_base_digest box_assert_no_default_args box_assert_tarball_pins box_assert_shell_placement box_assert_build_delegation box_pin_block box_image_tag box_image_tag_for_version box_build_image box_clean_image box_bundle_dir; do
     declare -F "$fn" >/dev/null || { echo "missing: $fn"; return 1; }
   done
 }
 
 @test "every lib file is linted (SHELL_FILES parity)" {
+  shell_line=$(grep -E '^SHELL_FILES :=' "$BUNDLE_DIR/Makefile")
+  [ -n "$shell_line" ] || { echo "cannot extract SHELL_FILES line from Makefile"; return 1; }
   for f in "$BUNDLE_DIR"/lib/*.sh; do
     base=$(basename -- "$f")
-    run grep -F "lib/$base" "$BUNDLE_DIR/Makefile"
-    [ "$status" -eq 0 ] || { echo "lib/$base missing from Makefile SHELL_FILES"; return 1; }
+    [[ "$shell_line" == *"lib/$base"* ]] \
+      || { echo "lib/$base missing from Makefile SHELL_FILES line"; return 1; }
   done
 }
 
-@test "verify.yml bash/shellcheck lists match Makefile SHELL_FILES" {
-  shell_files=$(grep -E '^SHELL_FILES :=' "$BUNDLE_DIR/Makefile" | sed 's/^SHELL_FILES := //')
-  [ -n "$shell_files" ] || { echo "cannot extract SHELL_FILES from Makefile"; return 1; }
-  ci_bash=$(grep -F 'for f in ' "$BUNDLE_DIR/.github/workflows/verify.yml" | head -n 1 | sed 's/.*for f in //; s/; do.*//')
-  [ -n "$ci_bash" ] || { echo "cannot extract bash list from verify.yml"; return 1; }
-  ci_shellcheck=$(grep -F 'run: shellcheck ' "$BUNDLE_DIR/.github/workflows/verify.yml" | head -n 1 | sed 's/.*run: shellcheck //')
-  [ -n "$ci_shellcheck" ] || { echo "cannot extract shellcheck list from verify.yml"; return 1; }
-  [ "$ci_bash" = "$shell_files" ] || { echo "verify.yml bash list drifted from SHELL_FILES"; return 1; }
-  [ "$ci_shellcheck" = "$shell_files" ] || { echo "verify.yml shellcheck list drifted from SHELL_FILES"; return 1; }
+@test "verify.yml calls make targets (no duplicated step bodies)" {
+  # m-23: CI must call `make verify-static` + `make pins` so a new gate added
+  # to verify-static runs in CI automatically. Duplicated bash/shellcheck
+  # file lists or json.tool bodies would silently miss new gates.
+  run grep -Fq 'run: make verify-static' "$BUNDLE_DIR/.github/workflows/verify.yml"
+  [ "$status" -eq 0 ] || { echo "verify.yml must call make verify-static"; return 1; }
+  run grep -Fq 'run: make pins' "$BUNDLE_DIR/.github/workflows/verify.yml"
+  [ "$status" -eq 0 ] || { echo "verify.yml must call make pins"; return 1; }
+  run grep -F 'run: shellcheck ' "$BUNDLE_DIR/.github/workflows/verify.yml"
+  [ "$status" -ne 0 ] || { echo "verify.yml must not duplicate shellcheck lists"; return 1; }
+  run grep -F 'for f in lib/' "$BUNDLE_DIR/.github/workflows/verify.yml"
+  [ "$status" -ne 0 ] || { echo "verify.yml must not duplicate bash -n lists"; return 1; }
+  run grep -F 'json.tool' "$BUNDLE_DIR/.github/workflows/verify.yml"
+  [ "$status" -ne 0 ] || { echo "verify.yml must not duplicate JSON checks"; return 1; }
 }
 
 @test "extra-gids appends to a caller-chosen array via nameref" {

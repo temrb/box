@@ -198,6 +198,9 @@ EOF
   [[ " ${args[*]} " == *" --cap-drop=ALL "* ]]
   [[ " ${args[*]} " == *" --read-only "* ]]
   [[ " ${args[*]} " == *" --network=box-m "* ]]
+  # Order matters (containment/resource/network/workdir canonical sequence):
+  # cap-drop precedes read-only precedes network precedes workdir.
+  [[ "${args[*]}" =~ --cap-drop=ALL.*--read-only.*--network=box-m.*--workdir=/workspace ]]
 }
 
 @test "forward keys passes NAME-only when set" {
@@ -211,10 +214,36 @@ EOF
   [ "${args[1]}" = "FWD_TEST_KEY_ONE" ]
 }
 
+@test "forward keys forwards set-but-empty flags, skips unset" {
+  # Flag-shaped terminal keys (NO_COLOR, FORCE_COLOR, CLICOLOR_FORCE) are
+  # presence-meaningful, so a set-but-empty value must survive the hop.
+  args=()
+  FWD_TEST_FLAG_EMPTY=
+  export FWD_TEST_FLAG_EMPTY
+  unset FWD_TEST_KEY_UNSET || true
+  box_forward_keys FWD_TEST_FLAG_EMPTY FWD_TEST_KEY_UNSET
+  [ "${#args[@]}" -eq 2 ]
+  [ "${args[0]}" = "--env" ]
+  [ "${args[1]}" = "FWD_TEST_FLAG_EMPTY" ]
+}
+
 @test "forward keys no-ops on an empty set (pure /connect)" {
   args=()
   box_forward_keys
   [ "${#args[@]}" -eq 0 ]
+}
+
+@test "forward keys appends to a caller-chosen array via --array" {
+  args=(--sentinel)
+  custom=()
+  FWD_TEST_CUSTOM=set-value
+  export FWD_TEST_CUSTOM
+  box_forward_keys --array custom FWD_TEST_CUSTOM
+  [ "${#args[@]}" -eq 1 ]
+  [ "${args[0]}" = "--sentinel" ]
+  [ "${#custom[@]}" -eq 2 ]
+  [ "${custom[0]}" = "--env" ]
+  [ "${custom[1]}" = "FWD_TEST_CUSTOM" ]
 }
 
 @test "runtime signal follows fallback_requested" {
@@ -253,6 +282,22 @@ EOF
   run box_muse_bypass --verbose login
   [ "$status" -eq 0 ]
   [ "$output" = "--disable-sandbox" ]
+}
+
+@test "muse bypass honors a custom INNER_FLAG value" {
+  BOX_M_INNER_FLAG='--new-flag'
+  export BOX_M_INNER_FLAG
+  run box_muse_bypass --foo
+  [ "$status" -eq 0 ]
+  [ "$output" = "--new-flag" ]
+  # Custom =value forms count as already-supplied (no double-inject).
+  run box_muse_bypass --new-flag=value
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # Denylist still applies with a custom flag.
+  run box_muse_bypass login
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "maybe-tty appends --tty only on a live terminal run" {

@@ -48,9 +48,11 @@ _BOX_TOOLS_LOADED=1
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
-# Resolve our own dir without helpers (preflight.sh, which defines die, is
-# sourced below). Same self-source pattern as lib/pins.sh so standalone
-# consumers (`bash lib/build.sh`, `bash -c 'source lib/pins.sh ...'`) work.
+# Canonical self-dir bootstrap (no helpers yet; realpath preferred, readlink
+# fallback). Same form in lib/tools.sh, lib/pins.sh, lib/build.sh; launchers
+# and entry scripts use the 1-line variant (see box-m). preflight.sh, which
+# defines die, is sourced below. Same self-source pattern as lib/pins.sh so
+# standalone consumers (`bash lib/build.sh`, `bash -c 'source lib/pins.sh ...'`) work.
 _tools_src=${BASH_SOURCE[0]}
 if command -v realpath >/dev/null 2>&1; then
   _tools_src=$(realpath -- "$_tools_src" 2>/dev/null || printf '%s' "$_tools_src")

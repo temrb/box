@@ -132,3 +132,27 @@ load helpers
   [ "$status" -ne 0 ]
   [[ "$output" == *"sandbox tool directory"* ]]
 }
+
+@test "preflight rejects mount paths with newlines" {
+  proj_with_nl="$PROJ_ROOT/with
+newline"
+  mkdir -p -- "$proj_with_nl"
+  project="$proj_with_nl"
+  run box_preflight_project
+  [ "$status" -ne 0 ]
+}
+
+@test "preflight unsets GIT_* overrides before the worktree check" {
+  if ! command -v git >/dev/null; then skip "git not installed"; fi
+  # A standalone clone inside the project must pass even when hostile GIT_*
+  # overrides point outside it: box_preflight_git unsets them first so
+  # rev-parse cannot be redirected outside the project.
+  git init -q -- "$TEST_PROJ/repo" 2>/dev/null
+  project="$TEST_PROJ/repo"
+  cd -- "$project"
+  export GIT_DIR="$TEST_TMP/external/.git" GIT_WORK_TREE="$TEST_TMP/external" \
+    GIT_COMMON_DIR="$TEST_TMP/external" GIT_CEILING_DIRECTORIES="$TEST_TMP" \
+    GIT_INDEX_FILE="$TEST_TMP/external-index"
+  run box_preflight_project
+  [ "$status" -eq 0 ]
+}

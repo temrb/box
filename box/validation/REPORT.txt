@@ -1,4 +1,4 @@
-Sandbox validation report — refreshed 2026-09-07 (UTC) for the current bundle.
+Sandbox validation report — refreshed 2026-09-08 (UTC) for the current bundle.
 Bundle files: box-m, box-o, box-m-login (installed real files; bare `box`
 is the setup-managed default symlink), lib/preflight.sh, lib/config.sh,
 lib/docker.sh, lib/launcher.sh, lib/run.sh, lib/pins.sh, lib/build.sh,
@@ -16,7 +16,7 @@ Static checks (no daemon needed — re-run these after any edit; run from box/):
   make verify-pins-generated
   # verify-static covers: bash -n over SHELL_FILES + verify.d/*.sh (split lib,
   #   launchers, verify harnesses, setup.sh, checkers, generators),
-  #   json.tool opencode.json settings.json, shellcheck (required) over the
+  #   jq empty opencode.json settings.json, shellcheck (required) over the
   #   same files, gen-verify.sh --check (generated == checked-in, implies
   #   §§1-2/5 sync), and gen-pins.sh --check (pin table == version files).
   # pin-check loads every pin via lib/pins.sh and asserts Dockerfile ARG
@@ -28,7 +28,7 @@ Static checks (no daemon needed — re-run these after any edit; run from box/):
   test -f "$HOME/.local/bin/box-m-login" && test ! -L "$HOME/.local/bin/box-m-login"
   test -L "$HOME/.local/bin/box" && test "$(readlink "$HOME/.local/bin/box")" = box-m
   test ! -e "$HOME/.local/bin/asdf1" && test ! -e "$HOME/.local/bin/asdf2"
-  for legacy in muse-sandbox opencode-sandbox muse-login; do
+  for legacy in muse-sandbox opencode-sandbox muse-login sb-m sb-o sb-m-login; do
     test ! -e "$HOME/.local/bin/$legacy" || echo "STALE: $legacy"
   done; unset legacy
 
@@ -61,8 +61,14 @@ Behavioral checks (no daemon; use --dry-run from a scratch project):
     falls back only if needed (NOTICE + WARNING, never silent); --shell
     stays explicit-only; --runsc forces gVisor with no probe;
     box-m-login propagates launcher failures via PIPESTATUS[0]
+  PASS terminal keys forward NAME-only when set (TERM, COLORTERM,
+    TERM_PROGRAM/VERSION, NO_COLOR, FORCE_COLOR, CLICOLOR_FORCE),
+    skipped when unset; set-but-empty flags survive the hop
+  PASS TUI theme sync fills missing host theme keys (tui.theme,
+    tui.color_depth, tui.terminal_background) once; existing sandbox
+    values always win and later host changes do not propagate
   PASS verifier capability parsing: awk over /proc/self/status plus capsh
-    regex matching both `Current:` and `Bounding set` spellings
+    (`Current:` always FAIL; `Bounding set` FAIL on runc, WARNING on runsc)
 
 Live checks (require Docker Engine >= 25 + runsc; see docs/operations.md §11 on host):
   builds, runsc execution, host-side docker inspect, inner bwrap/unshare
