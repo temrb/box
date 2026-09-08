@@ -18,14 +18,18 @@ fi
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
+# Canonical self-dir bootstrap (no helpers yet; realpath preferred, readlink
+# fallback). Same form in lib/tools.sh, lib/pins.sh, lib/build.sh; launchers
+# and entry scripts use the 1-line variant (see box-m). Factored as a function
+# here because box_bundle_dir() reuses it later.
 _box_build_lib_dir() {
-  local src_dir
+  local src=${BASH_SOURCE[0]}
   if command -v realpath >/dev/null 2>&1; then
-    src_dir=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")") || return 1
-  else
-    src_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")") || return 1
+    src=$(realpath -- "$src" 2>/dev/null || printf '%s' "$src")
+  elif command -v readlink >/dev/null 2>&1; then
+    src=$(readlink -f -- "$src" 2>/dev/null || printf '%s' "$src")
   fi
-  printf '%s' "$src_dir"
+  dirname -- "$src" || return 1
 }
 
 # Source dependencies (each has its own load guard; double-source is free).

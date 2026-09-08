@@ -36,15 +36,24 @@ if ! grep -qE -- '^CapBnd:[[:space:]]*0+[[:space:]]*$' /proc/self/status; then
   echo 'WARNING: nonzero CapBnd (tolerance-graded under runsc; check CapEff==0 + NoNewPrivs==1 above)'
   box_warnings=$((box_warnings+1))
 fi
-# Effective caps must be empty: fail if capsh reports any named capability
-# in the Current or Bounding set. NOTE: `Current:` has a colon while
-# `Bounding set` has none — the alternation must match both spellings.
+# Current caps must be empty (always FAIL); the Bounding set is graded like
+# CapBnd above (FAIL on runc, WARNING on runsc/unset) so the runsc tolerance
+# can actually tolerate. NOTE: `Current:` has a colon while `Bounding set`
+# has none — the patterns must match both spellings.
 # Pipefail-safe: capture capsh output first so a SIGPIPE from
 # `capsh | grep` cannot fail open; grep reads a herestring (no pipe).
 capsh_out=$(capsh --print 2>/dev/null) || { echo 'FAIL: capsh unavailable' >&2; exit 1; }
-if grep -E -- '^(Current:|Bounding set) .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
-  echo 'FAIL: capsh reports effective/bounding capabilities' >&2
+if grep -E -- '^Current: .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  echo 'FAIL: capsh reports effective capabilities' >&2
   exit 1
+fi
+if grep -E -- '^Bounding set .*cap_[a-z_]+' <<<"$capsh_out" >/dev/null; then
+  if [[ "${BOX_RUNTIME:-runsc}" == runc ]]; then
+    echo 'FAIL: capsh reports bounding capabilities under runc' >&2
+    exit 1
+  fi
+  echo 'WARNING: capsh reports bounding capabilities (tolerance-graded under runsc; check Current above)'
+  box_warnings=$((box_warnings+1))
 fi
 echo 'Capability stripping (CapEff==0, NoNewPrivs==1): PASS'
 # Prove /etc/passwd is the container file, not the host file.

@@ -19,8 +19,10 @@ else
   exit 1
 fi
 
-# Assert configuration file validity with has() pre-asserts on every path
-# (a missing key must fail closed, not compare null).
+# Assert configuration file validity. Compares against non-null literals fail
+# closed via `jq -e` alone (a missing key exits 1); has() pre-asserts are
+# kept as defense-in-depth where present (not universally redundant: `jq -e`
+# exits 0 on `.x == null` when the key is missing, since null==null is true).
 test -f /home/box/.config/opencode/opencode.json || { echo 'FAIL: opencode.json missing' >&2; exit 1; }
 jq -e '.permission.read["*.env"] == "ask"' /home/box/.config/opencode/opencode.json >/dev/null \
   || { echo 'FAIL: opencode.json permission.read["*.env"] != ask' >&2; exit 1; }

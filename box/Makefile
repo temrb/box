@@ -37,7 +37,8 @@ endif
 
 # Shell sources covered by bash -n + shellcheck (split lib + launchers +
 # harnesses + installer + pin checker + harness/pin generators + pins/build home).
-# Keep in sync with .github/workflows/verify.yml bash/shellcheck lists.
+# CI calls `make verify-static` (no duplicated lists there), so this list is
+# the single source for lint coverage.
 # verify.d/*.sh partials are bash -n checked in verify-static (shellcheck runs
 # on the generated harnesses, not fragments).
 SHELL_FILES := lib/preflight.sh lib/tools.sh lib/docker.sh lib/launcher.sh lib/run.sh lib/pins.sh lib/build.sh lib/config.sh box-m box-o box-m-login verify-muse.sh verify-opencode.sh setup.sh check-pins.sh gen-verify.sh gen-pins.sh regen-validation.sh
@@ -58,7 +59,7 @@ help:
 	@echo '  build-<stem>   build one image (stem = registry launcher suffix, e.g. build-m, build-o)'
 	@echo '  setup          run setup.sh (configs, launchers, networks, all images; see setup.sh --help)'
 	@echo '  test           run the bats unit suite (tests/bats/)'
-	@echo '  verify-static  bash -n + json.tool + verify-generated + verify-pins-generated + shellcheck + bats (fast-first)'
+	@echo '  verify-static  bash -n + jq empty + verify-generated + verify-pins-generated + shellcheck + bats (fast-first)'
 	@echo '  verify-generated  assert verify-*.sh == gen-verify.sh output (primary check; implies §§1-2/5 sync)'
 	@echo '  verify-pins-generated  assert docs/architecture.md §4 == gen-pins.sh output'
 	@echo '  pin-check      assert version pins vs Dockerfile vs docs/architecture.md §4'
@@ -99,7 +100,7 @@ test:
 verify-static:
 	for f in $(SHELL_FILES); do bash -n "$(BUNDLE_DIR)/$$f" || exit 1; done
 	for f in verify.d/*.sh; do bash -n "$(BUNDLE_DIR)/$$f" || exit 1; done
-	for f in $(TOOL_CONFIGS); do python3 -m json.tool "$(BUNDLE_DIR)/$$f" >/dev/null || exit 1; done
+	for f in $(TOOL_CONFIGS); do jq empty "$(BUNDLE_DIR)/$$f" >/dev/null || exit 1; done
 	bash "$(BUNDLE_DIR)/gen-verify.sh" --check
 	bash "$(BUNDLE_DIR)/gen-pins.sh" --check
 	shellcheck $(addprefix "$(BUNDLE_DIR)/",$(SHELL_FILES))

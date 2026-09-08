@@ -52,9 +52,12 @@ is the final gate before committing.
    ```bash
    BOX_M_IMAGE="box-m:${new_version}-u$(id -u)-g$(id -g)" box-m --version
    ```
-4. Atomically synchronize `version-muse.env` across the repository bundle and user configuration:
+4. Synchronize `version-muse.env` across the repository bundle and user configuration (atomic rename, so readers never see a half-written file):
    ```bash
-   cp "$bundle_dir/version-muse.env" "$HOME/.config/box-m/version-muse.env"
+   tmp=$(mktemp "$HOME/.config/box-m/.version-muse.env.tmp.XXXXXX")
+   cp -- "$bundle_dir/version-muse.env" "$tmp"
+   chmod 644 -- "$tmp"
+   mv -f -- "$tmp" "$HOME/.config/box-m/version-muse.env"
    cmp "$bundle_dir/version-muse.env" "$HOME/.config/box-m/version-muse.env" && echo "Versions synchronized."
    ```
 5. Finish the bump checklist above (harness literals + `gen-verify.sh`, pin table + `gen-pins.sh`, bats literals), then `make pins && make test`.

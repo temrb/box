@@ -40,11 +40,12 @@ host_gid=$(id -g)
 # Single pin home: strict parse (LF-only, allowlist, regex). Fails closed on
 # CRLF/unknown keys. NODE_VERSION + NODESOURCE_FINGERPRINT come from
 # version-opencode.env (not hardcoded). The Node toolchain is opencode-owned
-# (only npm-pinned tool needs it): adding tools is unaffected, but removing
-# opencode would require updating this block and the Dockerfile asserts below.
+# (only npm-pinned tool needs it): the safe expansions + guard below skip the
+# Node asserts when opencode is absent (safe under `set -u`), so removing
+# opencode never crashes here — it just drops the Node checks with the tool.
 box_load_all_pins "$bundle_dir"
-node_version=$NODE_VERSION
-fingerprint=$NODESOURCE_FINGERPRINT
+node_version=${NODE_VERSION:-}
+fingerprint=${NODESOURCE_FINGERPRINT:-}
 for _pins_id in $box_tool_ids; do
   for _pins_key in $(box_tool_field "$_pins_id" pin_keys); do
     [[ -n "${!_pins_key:-}" ]] || die "Empty $_pins_key pin after parse."
@@ -91,7 +92,9 @@ done <<<"$readme_digests"
 # --- Node.js exact pin + fingerprint match Dockerfile logic + docs/architecture.md §4 table ---
 # Both pins live once in version-opencode.env (via lib/pins.sh). The
 # Dockerfile consumes them parameterized (no hardcoded copy); the docs/architecture.md §4
-# pin table records the resolved values for humans.
+# pin table records the resolved values for humans. Skipped when opencode is
+# absent (no Node toolchain then).
+if [[ -n "$node_version" && -n "$fingerprint" ]]; then
 # shellcheck disable=SC2016 # '${...}' literals below match Dockerfile source text.
 grep -Fq '"nodejs=${NODE_VERSION}"' "$dockerfile" \
   || die 'Dockerfile must install parameterized "nodejs=${NODE_VERSION}"'
@@ -104,12 +107,13 @@ grep -Fq '"${NODESOURCE_FINGERPRINT}"' "$dockerfile" \
 grep -Fq 'test "$fpr_count" = 2' "$dockerfile" \
   || die 'Dockerfile must assert two NodeSource fingerprints (primary + subkey)'
 # shellcheck disable=SC2016 # '$NODE_VERSION' below is an intentional literal.
-! grep -Fq 'nodejs=22.' "$dockerfile" \
+! grep -Eq 'nodejs=[0-9]' "$dockerfile" \
   || die 'Dockerfile must not hardcode a Node version (use $NODE_VERSION from version-opencode.env)'
 grep -Fq "$node_version" <<<"$readme_pins" \
   || die "docs/architecture.md §4 pin table must contain exact Node version: $node_version"
 grep -Fq "$fingerprint" <<<"$readme_pins" \
   || die "docs/architecture.md §4 pin table must contain NodeSource fingerprint: $fingerprint"
+fi
 
 # --- OpenCode tarball-to-pin strength is covered by box_assert_tarball_pins above ---
 
@@ -133,6 +137,6 @@ for _pins_id in $box_tool_ids; do
   _pins_versions+="${_pins_versions:+, }$_pins_id ${!_pins_vkey}"
 done
 unset _pins_id _pins_vkey
-printf 'check-pins.sh: PASS (%s, base %s, node nodejs=%s)\n' \
-  "$_pins_versions" "$docker_digest" "$node_version"
+printf 'check-pins.sh: PASS (%s, base %s%s)\n' \
+  "$_pins_versions" "$docker_digest" "${node_version:+, node nodejs=$node_version}"
 unset _pins_versions

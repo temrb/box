@@ -134,19 +134,34 @@ box_base_args() {
     --network="$network" --workdir=/workspace)
 }
 
-# Forward provider keys into the container by NAME only (never =value, never
-# in dry-run output when unset). Callers pass the tool-specific set:
-# muse forwards MUSE_CODE_API_KEY only (least privilege); opencode forwards
-# nothing (pure /connect — empty registry set, no-op below). Appends to
-# caller-owned `args`.
-# Usage: box_forward_keys [<KEY...>]  (e.g. box_forward_keys MUSE_CODE_API_KEY)
+# Forward keys into the container by NAME only (never =value, so dry-run
+# output stays value-free). Two uses: provider keys (callers pass the
+# tool-specific registry set — muse forwards MUSE_CODE_API_KEY only, least
+# privilege; opencode forwards nothing, pure /connect, empty-set no-op) and
+# host terminal keys (both launchers pass BOX_TERMINAL_KEYS so TUI
+# color-depth detection matches the host terminal). A key is forwarded when
+# SET, even when empty: the flag-shaped terminal keys (NO_COLOR,
+# FORCE_COLOR, CLICOLOR_FORCE) are conventionally presence-meaningful, so a
+# set-but-empty flag must survive the hop. Unset keys are skipped (under
+# --dry-run the credential loader exports nothing, so no provider key is
+# forwarded there). Appends to a caller-owned array via nameref (defaults to
+# `args`, like box_extra_gids/box_base_args).
+# Usage: box_forward_keys [--array ARRAY_NAME] [<KEY...>]
+# (e.g. box_forward_keys MUSE_CODE_API_KEY; box_forward_keys --array custom FOO)
 box_forward_keys() {
+  local array_name=args
+  if [[ "${1:-}" == "--array" ]]; then
+    array_name=${2:-}
+    [[ -n "$array_name" ]] || die 'Internal error: missing forward-keys array name.'
+    shift 2 || die 'Internal error: missing forward-keys array name.'
+  fi
   (($# > 0)) || return 0
+  local -n fwd_out="$array_name"
   local key
   for key in "$@"; do
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die 'Internal error: invalid forward-key entry.'
     # shellcheck disable=SC2086 # indirect check-then-forward by name is intentional.
-    if [[ -n "${!key:-}" ]]; then args+=(--env "$key"); fi
+    if [[ -n "${!key+x}" ]]; then fwd_out+=(--env "$key"); fi
   done
 }
 

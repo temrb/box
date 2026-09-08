@@ -51,11 +51,14 @@ partials_found=$(printf '%s\n' "$partials"/*.sh | wc -l)
 gen_one() {
   local tool=${1:-} out=${2:-}
   [[ -n "$tool" && -n "$out" ]] || die 'Internal error: missing generator arguments.'
-  local tmp
+  local tmp prev_return_trap prev_exit_trap
+  prev_return_trap=$(trap -p RETURN || true)
+  prev_exit_trap=$(trap -p EXIT || true)
   tmp=$(box_mktemp_file gen-verify) || die 'Cannot create temp file.'
   # RETURN covers the normal return; EXIT covers die/exit paths inside this
-  # function (RETURN alone is skipped on exit). Both are cleared below so no
-  # stale trap (or stale local $tmp reference) persists past the return.
+  # function (RETURN alone is skipped on exit). Caller traps are saved above
+  # and restored below so no stale trap (or stale local $tmp reference)
+  # persists past the return and no caller EXIT trap is cleared.
   trap 'rm -f -- "$tmp"' RETURN EXIT
   cat -- \
     "$partials/00-header-$tool.sh" \
@@ -82,6 +85,8 @@ gen_one() {
   # is a no-op). The RETURN/EXIT trap above covers die/exit-1 paths.
   rm -f -- "$tmp" || true
   trap - RETURN EXIT
+  if [[ -n "$prev_return_trap" ]]; then eval "$prev_return_trap"; fi
+  if [[ -n "$prev_exit_trap" ]]; then eval "$prev_exit_trap"; fi
 }
 
 _gen_outs=""

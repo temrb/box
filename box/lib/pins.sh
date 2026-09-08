@@ -15,8 +15,10 @@ _BOX_PINS_LOADED=1
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
-# Resolve our own dir without helpers (preflight.sh, which defines
-# box_realpath, is sourced below).
+# Canonical self-dir bootstrap (no helpers yet; realpath preferred, readlink
+# fallback). Same form in lib/tools.sh, lib/pins.sh, lib/build.sh; launchers
+# and entry scripts use the 1-line variant (see box-m). preflight.sh, which
+# defines box_realpath, is sourced below.
 _pins_src=${BASH_SOURCE[0]}
 if command -v realpath >/dev/null 2>&1; then
   _pins_src=$(realpath -- "$_pins_src" 2>/dev/null || printf '%s' "$_pins_src")
@@ -150,6 +152,13 @@ box_assert_shell_placement() {
     (( n < first_from )) \
       && die 'Dockerfile must not place SHELL before the first FROM (no build stage in current context; SHELL is per-stage).'
   done < <(grep -n '^SHELL ' "$dockerfile" | cut -d: -f1 || true)
+  # Reject any non-canonical SHELL outright: otherwise a non-canonical SHELL
+  # in one stage compensated by two canonical in another passes the count
+  # check below (canonical count == FROM count) plus per-stage >=1-SHELL.
+  local non_canonical
+  non_canonical=$(grep -E '^SHELL ' "$dockerfile" | grep -Ev '^SHELL \["/bin/bash", "-o", "pipefail", "-c"\]([[:space:]]|$)' || true)
+  [[ -z "$non_canonical" ]] \
+    || die 'Dockerfile must use only the canonical SHELL ["/bin/bash", "-o", "pipefail", "-c"] in every stage.'
   local shell_count from_count
   shell_count=$(grep -Ec '^SHELL \["/bin/bash", "-o", "pipefail", "-c"\]([[:space:]]|$)' "$dockerfile") \
     || die 'Dockerfile must set SHELL to bash with pipefail in every stage.'
@@ -157,8 +166,11 @@ box_assert_shell_placement() {
     || die 'Cannot count FROM stages in Dockerfile.'
   [[ "$shell_count" -eq "$from_count" ]] \
     || die "Dockerfile must repeat SHELL in every stage (found $shell_count canonical SHELL for $from_count FROM)."
+  # Every SHELL is canonical at this point (rejected above), so per-stage
+  # >=1 plus the count equality above implies exactly one canonical SHELL
+  # per FROM stage.
   awk '/^FROM / { if (seen_from && shell_in_stage == 0) exit 1; seen_from = 1; shell_in_stage = 0; next } /^SHELL / { if (seen_from) shell_in_stage++ } END { exit !(seen_from && shell_in_stage > 0) }' "$dockerfile" \
-    || die 'Dockerfile must contain a SHELL in every FROM stage.'
+    || die 'Dockerfile must contain a canonical SHELL in every FROM stage.'
 }
 
 # Shared build-delegation assert: lib/build.sh owns flags; setup.sh and the

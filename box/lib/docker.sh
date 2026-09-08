@@ -29,7 +29,7 @@ _BOX_NETWORK_INSPECT_FORMAT='{{.Driver}}|{{.Internal}}|{{index .Options "com.doc
 # Sets globals: docker_bin, docker_cli_config, docker_cmd (array).
 # Usage: box_docker_cli <cli_config_dir>
 box_docker_cli() {
-  local cli_dir=${1:-} existing tmp_cfg
+  local cli_dir=${1:-} existing tmp_cfg prev_return_trap prev_exit_trap
   [[ -n "$cli_dir" ]] || die 'Internal error: empty Docker CLI config dir.'
   unset DOCKER_HOST DOCKER_CONTEXT DOCKER_TLS_VERIFY DOCKER_CERT_PATH DOCKER_CONFIG
   unset DOCKER_BUILDKIT BUILDKIT_HOST BUILDKIT_PROGRESS
@@ -52,11 +52,13 @@ box_docker_cli() {
     || die 'Cannot secure the Docker CLI configuration directory.'
   # Allocate a fresh mktemp file (mode 600). RETURN covers the normal
   # return; EXIT covers die/exit paths inside this function (RETURN alone is
-  # skipped on exit). Both are cleared after the explicit rm below so no
-  # stale trap (or stale local $tmp_cfg reference) persists past the return.
-  # Callers set no EXIT trap of their own, so chaining is unnecessary.
+  # skipped on exit). Caller traps are saved before arming ours and restored
+  # after the explicit rm below, so no stale trap (or stale local $tmp_cfg
+  # reference) persists past the return and no caller EXIT trap is cleared.
   # (No stale-tmp sweep: mktemp names are unique per run; sweeping risks
   # deleting a concurrent run's file.)
+  prev_return_trap=$(trap -p RETURN || true)
+  prev_exit_trap=$(trap -p EXIT || true)
   tmp_cfg=$(mktemp "$docker_cli_config/.config.json.tmp.XXXXXX") \
     || die 'Cannot create temporary Docker CLI configuration.'
   trap 'rm -f -- "$tmp_cfg"' RETURN EXIT
@@ -89,6 +91,8 @@ box_docker_cli() {
   fi
   rm -f -- "$tmp_cfg" 2>/dev/null || true
   trap - RETURN EXIT
+  if [[ -n "$prev_return_trap" ]]; then eval "$prev_return_trap"; fi
+  if [[ -n "$prev_exit_trap" ]]; then eval "$prev_exit_trap"; fi
   chmod 600 -- "$docker_cli_config/config.json" \
     || die 'Cannot secure the Docker CLI configuration.'
   docker_cmd=("$docker_bin" --config "$docker_cli_config" --host unix:///var/run/docker.sock)
@@ -102,9 +106,12 @@ box_assert_engine() {
   local security_options server_version server_major
   security_options=$("${docker_cmd[@]}" info --format '{{json .SecurityOptions}}') \
     || die 'Local Docker Engine is unavailable.'
-  case "$security_options" in
-    *name=userns*|*name=rootless*) die 'Rootless/userns-remapped Engine requires a different UID mapping design.' ;;
-  esac
+  command -v jq >/dev/null || die 'jq is required (documented host prerequisite).'
+  printf '%s' "$security_options" | jq -e 'type == "array"' >/dev/null \
+    || die 'Cannot determine Docker Engine security options.'
+  if printf '%s' "$security_options" | jq -e 'any(.[]; contains("name=userns") or contains("name=rootless"))' >/dev/null; then
+    die 'Rootless/userns-remapped Engine requires a different UID mapping design.'
+  fi
   server_version=$("${docker_cmd[@]}" version --format '{{.Server.Version}}') \
     || die 'Cannot determine Docker Engine version.'
   server_major=${server_version%%.*}
@@ -252,16 +259,18 @@ box_assert_runtime() {
   if [[ "${fallback_requested:-0}" == 1 ]]; then wanted=runc; else wanted=runsc; fi
   runtimes=$("${docker_cmd[@]}" info --format '{{json .Runtimes}}') \
     || die 'Local Docker Engine is unavailable.'
-  case "$runtimes" in
-    *"\"$wanted\""*) : ;;
-    *)
-      if [[ "$wanted" == runsc ]]; then
-        die "Container runtime 'runsc' (gVisor) is not registered with Docker. Install gVisor per docs/operations.md §5 ('runsc install' + 'systemctl restart docker'), or explicitly use --docker-fallback for hardened runc."
-      else
-        die "Container runtime 'runc' is not registered with Docker."
-      fi
-      ;;
-  esac
+  command -v jq >/dev/null || die 'jq is required (documented host prerequisite).'
+  printf '%s' "$runtimes" | jq -e 'type == "object"' >/dev/null \
+    || die 'Cannot determine Docker runtimes.'
+  if printf '%s' "$runtimes" | jq -e --arg w "$wanted" 'has($w)' >/dev/null; then
+    :
+  else
+    if [[ "$wanted" == runsc ]]; then
+      die "Container runtime 'runsc' (gVisor) is not registered with Docker. Install gVisor per docs/operations.md §5 ('runsc install' + 'systemctl restart docker'), or explicitly use --docker-fallback for hardened runc."
+    else
+      die "Container runtime 'runc' is not registered with Docker."
+    fi
+  fi
 }
 
 # Print the docker command under --dry-run, otherwise assert engine/runtime/

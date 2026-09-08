@@ -460,8 +460,10 @@ box_load_credentials() {
     # Validate the key charset before allowlist matching so unknown-key
     # detection stays exact even for glob-looking keys.
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "Unsupported credential variable: $key"
-    # Empty values would be silently dropped by the launchers' `-n` guard and
-    # fail opaquely inside the container: reject them here instead.
+    # Empty values are never valid credentials and would fail opaquely inside
+    # the container (the forwarder passes set-but-empty values through, so an
+    # empty key would arrive as an empty env var, not as unset): reject them
+    # here with a clear error instead.
     [[ -n "$value" ]] || die "Empty value for credential variable: $key"
     if [[ -n "${allowlist[$key]:-}" ]]; then
       export "$key=$value"

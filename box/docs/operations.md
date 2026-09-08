@@ -9,7 +9,9 @@ for upgrades see `upgrades.md`; for diagnostics see `troubleshooting.md`.
 Linux-only. macOS is unsupported (runsc + UID/GID-matched rootful Engine are
 Linux-only; use a Linux host or VM). Requires Docker Engine **>= 25.0** for
 `bind-recursive=disabled` support (both launchers' mount flags), plus `runsc`
-(gVisor), `realpath`, `git`, `jq`, `shellcheck`. Older Engines without `bind-recursive`
+(gVisor), `realpath`, `git`, `jq`, `shellcheck`, `bats` (all required by
+`make verify-static`; `python3` is only an optional `box_realpath` fallback
+when both `realpath` and `readlink` are missing). Older Engines without `bind-recursive`
 support fail closed: rebuild/upgrade the Engine; do not drop the flag. The
 bats suite asserts GNU `stat -c` owner/mode checks and is Linux-only by
 design (same as `lib/preflight.sh`; macOS `stat -f` is not supported).
@@ -196,7 +198,8 @@ box-o      # OpenCode, explicitly
 ```
 
 Switch the `box` default persistently with one installer run (no rebuild:
-only the symlink is repointed, everything else is left alone):
+images are skipped, but tool configs — with `.bak` backup — launchers,
+networks, and pins are still refreshed):
 
 ```bash
 bundle_dir=/path/to/box
@@ -231,6 +234,11 @@ persist across runs; every launch still re-asserts the four safety-critical
 keys (`approval_mode`, `approval_judge`, `telemetry.enabled`,
 `api.base_url`) from the seed, reverting any in-container downgrade while
 leaving `model`, `reasoning_effort`, and unknown keys alone.
+Missing TUI theme keys (`tui.theme`, `tui.color_depth`,
+`tui.terminal_background`) are filled from the host-native
+`~/.config/muse/settings.json` when absent; existing sandbox values always
+win, so pick the sandbox theme with in-sandbox `/theme` (it persists
+globally) — later host theme changes do not propagate.
 No runtime flag is needed for any tool run: the launcher probes container
 DNS under `runsc` first and stays on gVisor when healthy; only if the probe
 fails does it auto-select the hardened-runc fallback with a single
@@ -274,7 +282,7 @@ box-o --shell
 |---|---|---|
 | `/workspace` | Host project bind (`pwd -P`) | Persistent read-write |
 | `/home/box/.config/muse` | Global host bind `~/.config/box-m/muse-config/` (`700`) | Persistent writable dir (`settings.json`, `auth.json`, `.trust.json`); shared across projects |
-| `/home/box/.config/muse/settings.json` | Seeded file in the persistent bind (muse) | Writable; user-owned, persists across runs |
+| `/home/box/.config/muse/settings.json` | Seeded file in the persistent bind (muse) | Writable; user-owned, persists across runs; missing TUI theme keys filled from host-native settings, then independent (in-sandbox `/theme` persists globally) |
 | `/home/box/.config/opencode` | `tmpfs` (`uid,gid,mode=700`) | Ephemeral writable dir (server/auth state); cleared on container removal |
 | `/home/box/.config/opencode/opencode.json` | Host config bind (opencode) | Read-only file inside writable `tmpfs` parent (order matters) |
 | `/persist/data/muse` + `/persist/state/muse` | Docker named volume `box-m-u<uid>-g<gid>-<hash>` | Persistent across runs |
@@ -308,13 +316,13 @@ make -C "$bundle_dir" verify-static
 make -C "$bundle_dir" pins
 ```
 
-`--dry-run` shape checks (no secret values; assert `--env NAME` form, `runsc` default, `bind-recursive=disabled`, `--pull=never`, `--read-only`, no `--tty`, isolated `--config .../docker-cli`). `--dry-run` never contacts the daemon, but it is not side-effect-free: `box-m --dry-run` still seeds + enforces the persisted `~/.config/box-m/muse-config/settings.json` safety keys (local files only; pinned by `tests/bats/launchers.bats`):
+`--dry-run` shape checks (no secret values; assert `--env NAME` form, `runsc` default, `bind-recursive=disabled`, `--pull=never`, `--read-only`, no `--tty`, isolated `--config .../docker-cli`). `--dry-run` never contacts the daemon, but it is not side-effect-free: `box-m --dry-run` still seeds + enforces the persisted `~/.config/box-m/muse-config/settings.json` safety keys and syncs missing host TUI theme keys (local files only; pinned by `tests/bats/launchers.bats`):
 
 ```bash
 cd ~/projects/my-app
-# Trailing-space match: provider keys pass as `--env NAME` (NAME-only, no
-# `=value`). `--env KEY=value` assignments (GIT_*, *_AUTOUPDATE) end in `=`
-# and are excluded by construction.
+# Trailing-space match: provider and terminal keys pass as `--env NAME`
+# (NAME-only, no `=value`). `--env KEY=value` assignments (GIT_*,
+# *_AUTOUPDATE) end in `=` and are excluded by construction.
 box-m --dry-run | grep -o -- '--env [A-Z_][A-Z0-9_]* ' | sort -u
 box-o --dry-run | grep -o -- '--env [A-Z_][A-Z0-9_]* ' | sort -u
 ```
@@ -339,6 +347,11 @@ docker --config "$HOME/.config/box-m/docker-cli" --host unix:///var/run/docker.s
 docker --config "$HOME/.config/box-m/docker-cli" --host unix:///var/run/docker.sock exec "$box_container" \
   bash -c 'test ! -e "$1" && test ! -e "$1/.ssh" && test ! -e "$1/.gnupg"' _ "$HOME"
 ```
+
+Caveat: the first `test ! -e "$HOME"` false-fails when the host `$HOME` is
+`/home/box` (that path exists in-container by design as the container home).
+In that case assert the credential subpaths only (`"$HOME/.ssh"`,
+`"$HOME/.gnupg"`), not the home itself.
 
 Negative tests (must fail closed): system-dir project (`/tmp/foo`, `/srv/foo`, `/data/foo`, `/snap/foo`), tool-dir project (`~/.config/box`, `~/.local/bin`), in-project credentials/config/version files, symlinked `$HOME`/cred-dir escapes, project symlink into a credential path, CRLF version file, unknown cred key, empty cred value, GID 0 in `*_EXTRA_GIDS`, missing creds file, launcher flag after `--shell`, group/other-writable config or version file.
 
