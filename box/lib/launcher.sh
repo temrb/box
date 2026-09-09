@@ -279,15 +279,40 @@ box_sync_host_tui_theme() {
   box_write_if_changed "$dest" "$merged" "theme-synced settings"
 }
 
+# Classify a probe-container exit code into a verdict string. Pure: prints
+# `dns` or `startup` to stdout and never dies, so it is safe in $(...)
+# captures (die there would exit only the subshell — same caveat as
+# box_require_tool in lib/tools.sh). Takes ${1:-} with a safe default so
+# `set -u` callers cannot fail.
+# Mapping rule: 1/2 → `dns`, every other code → `startup`. Evidence: rc=2 is
+# the proven genuine-DNS signal (fast ~0.4s, steady both tools); rc=1 is the
+# repo's established stubbed-DNS convention; rc=125 is the proven runsc
+# startup failure (`OCI runtime start failed`). Anything else (notably
+# timeout-124) is by construction not proven resolution failure — genuine DNS
+# failure returns in ~0.4s, so a timeout proves nothing about resolution —
+# and must not wear the DNS NOTICE. rc=0 maps to `startup` only as a
+# never-passed default: the success path returns before classification.
+# See specs/handoff-probe.md.
+# Usage: verdict=$(box_classify_probe_rc "$probe_rc")
+box_classify_probe_rc() {
+  local rc=${1:-}
+  case "$rc" in
+    1|2) printf 'dns' ;;
+    *) printf 'startup' ;;
+  esac
+}
+
 # Probe container DNS under runsc for caller-supplied hosts (required: each
 # launcher passes its registry probe_hosts, so shared code holds no per-tool
 # default).
 # Daemon/image/network problems fail closed with remediation (they are NOT a
-# DNS verdict): only a healthy-daemon probe that cannot resolve counts as DNS
-# failure, so callers never misroute a broken setup into the runc fallback.
+# probe verdict): only the container run itself yields a classifiable rc, so
+# callers never misroute a broken setup into the runc fallback.
 # Hosts are charset-validated (no injection into the probe shell). Uses
-# globals docker_cmd, host_uid, host_gid. Returns 0 when every host resolves,
-# nonzero on DNS failure/timeout.
+# globals docker_cmd, host_uid, host_gid. Returns the raw `timeout`/`docker
+# run` rc (0 healthy; 1/2 in-container resolution failure; 125 startup
+# failure; 124 timeout); callers classify via `box_classify_probe_rc` — the
+# rc alone is not a DNS verdict.
 # Usage: box_probe_runsc_dns <image> <network> <host...>
 box_probe_runsc_dns() {
   local image=${1:-} network=${2:-}
@@ -310,11 +335,13 @@ box_probe_runsc_dns() {
     probe_cmd+="getent hosts $probe_host >/dev/null 2>&1 && "
   done
   probe_cmd=${probe_cmd% && }
+  local probe_rc=0
   timeout "$BOX_DNS_PROBE_TIMEOUT" "${docker_cmd[@]}" run --rm --pull=never --runtime=runsc \
     --user "$host_uid:$host_gid" --cap-drop=ALL --security-opt=no-new-privileges \
     --read-only --network="$network" --entrypoint=/bin/bash "$image" \
     -c "$probe_cmd" \
-    >/dev/null 2>&1
+    >/dev/null 2>&1 || probe_rc=$?
+  return "$probe_rc"
 }
 
 # Match a Meta device-flow URL in one tool-output line and split out the
@@ -343,10 +370,13 @@ box_device_url_code() {
 }
 # AUTO runtime: probe container DNS under runsc first, stay on gVisor when
 # healthy, else auto-select hardened runc with a single NOTICE plus the
-# standard fallback WARNING (never silent). With <allow_env>=0 a failed
-# probe fails closed with remediation instead of launching a run that would
-# fail opaquely inside (e.g. `device flow transport error` for the Muse
-# device flow, `failed to fetch model catalog` for TUI runs). The optional
+# standard fallback WARNING (never silent). The probe rc is classified via
+# box_classify_probe_rc: 1/2 → DNS NOTICE, any other nonzero → startup NOTICE
+# naming the exit code; both heal identically, only the words differ. With
+# <allow_env>=0 a failed probe fails closed with remediation instead of
+# launching a run that would fail opaquely inside (e.g. `device flow transport
+# error` for the Muse device flow, `failed to fetch model catalog` for TUI
+# runs; startup verdicts add runsc/Engine version checks). The optional
 # <context> names the run in both messages (default '`login`'); callers pass
 # probe hosts after it (required: each launcher passes its registry
 # probe_hosts).
@@ -363,14 +393,26 @@ box_auto_runtime() {
   [[ -n "$image" && -n "$network" && -n "$allow_env" && -n "$context" ]] || die 'Internal error: missing auto-runtime arguments.'
   local -a probe_hosts=("${@:5}")
   ((explicit_runsc == 0)) || return 0
-  if box_probe_runsc_dns "$image" "$network" "${probe_hosts[@]}"; then
-    return 0
-  fi
+  local probe_rc=0
+  box_probe_runsc_dns "$image" "$network" "${probe_hosts[@]}" || probe_rc=$?
+  ((probe_rc == 0)) && return 0
+  local verdict
+  verdict=$(box_classify_probe_rc "$probe_rc")
   # shellcheck disable=SC2086
   if [[ "${!allow_env:-1}" == "0" ]]; then
-    die "runsc container DNS unreachable and fallback disabled via ${allow_env}=0; refusing to start $context."
+    case "$verdict" in
+      dns) die "runsc container DNS unreachable and fallback disabled via ${allow_env}=0; refusing to start $context." ;;
+      *) die "runsc failed to start or complete probe containers (exit $probe_rc) and fallback disabled via ${allow_env}=0; refusing to start $context (check 'runsc --version', the daemon log, and runsc/Engine version compatibility)." ;;
+    esac
   fi
-  printf '%s: NOTICE: container DNS unreachable under runsc; auto-selecting hardened-runc fallback for %s.\n' "$BOX_TOOL" "$context" >&2
+  case "$verdict" in
+    dns)
+      printf '%s: NOTICE: container DNS unreachable under runsc; auto-selecting hardened-runc fallback for %s.\n' "$BOX_TOOL" "$context" >&2
+      ;;
+    *)
+      printf '%s: NOTICE: runsc failed to start or complete probe containers (exit %s); auto-selecting hardened-runc fallback for %s.\n' "$BOX_TOOL" "$probe_rc" "$context" >&2
+      ;;
+  esac
   runtime_args=(--runtime=runc)
   fallback_requested=1
   box_check_fallback "$allow_env"

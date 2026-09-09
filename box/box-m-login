@@ -9,8 +9,9 @@
 # Runtime default is AUTO: delegate to `box-m login`, which probes
 # container DNS under runsc first and auto-selects the hardened-runc fallback
 # only if needed (single shared probe in lib/launcher.sh — no duplicate probe
-# here). Docker embedded DNS 127.0.0.11 is unreachable under runsc on VPN
-# hosts, e.g. Proton VPN + systemd-resolved stub, which presents as
+# here). Docker embedded DNS 127.0.0.11 can be unreachable from inside the
+# runsc sandbox on user-defined bridge networks (endpoint-side,
+# upstream-independent gap), which presents as
 # `login failed: device flow transport error`. The launcher prints the
 # selection (NOTICE + WARNING on fallback, never silent).
 # Pass --docker-fallback to force runc, --runsc to force gVisor.
