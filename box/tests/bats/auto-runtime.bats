@@ -155,3 +155,86 @@ timeout() { shift; "$@"; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"Create the dedicated network"* ]]
 }
+
+@test "classifier maps 1 and 2 to dns" {
+  [ "$(box_classify_probe_rc 1)" = "dns" ]
+  [ "$(box_classify_probe_rc 2)" = "dns" ]
+}
+
+@test "classifier maps 0, 124, 125, and other codes to startup" {
+  # 0 documents "never passed on the success path": the success path returns
+  # before classification, so 0 mapping to startup is unreachable by design.
+  [ "$(box_classify_probe_rc 0)" = "startup" ]
+  [ "$(box_classify_probe_rc 124)" = "startup" ]
+  [ "$(box_classify_probe_rc 125)" = "startup" ]
+  [ "$(box_classify_probe_rc 3)" = "startup" ]
+  run box_classify_probe_rc
+  [ "$status" -eq 0 ]
+  [ "$output" = "startup" ]
+}
+
+@test "probe returns the raw container rc for classification" {
+  _stub_docker 125
+  run box_probe_runsc_dns some-image:0 some-net host.example.com
+  [ "$status" -eq 125 ]
+  _stub_docker 124
+  run box_probe_runsc_dns some-image:0 some-net host.example.com
+  [ "$status" -eq 124 ]
+  _stub_docker 2
+  run box_probe_runsc_dns some-image:0 some-net host.example.com
+  [ "$status" -eq 2 ]
+}
+
+@test "auto-runtime on rc=2 prints the byte-identical DNS NOTICE plus WARNING" {
+  _stub_docker 2
+  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"test: NOTICE: container DNS unreachable under runsc; auto-selecting hardened-runc fallback for this run."* ]]
+  [[ "$output" == *"test: WARNING: using explicit hardened-runc fallback (no gVisor syscall interposition)."* ]]
+}
+
+@test "auto-runtime on rc=125 heals with a distinct startup NOTICE plus WARNING" {
+  _stub_docker 125
+  runtime_args=(--runtime=runsc)
+  fallback_requested=0
+  explicit_runsc=0
+  box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com >"$TEST_TMP/out.txt" 2>&1
+  [ "$?" -eq 0 ]
+  [ "${runtime_args[*]}" = "--runtime=runc" ]
+  [ "$fallback_requested" -eq 1 ]
+  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"NOTICE: runsc failed to start or complete probe containers (exit 125); auto-selecting hardened-runc fallback for this run."* ]]
+  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"explicit hardened-runc fallback"* ]]
+}
+
+@test "auto-runtime on rc=124 heals with a distinct startup NOTICE plus WARNING" {
+  _stub_docker 124
+  runtime_args=(--runtime=runsc)
+  fallback_requested=0
+  explicit_runsc=0
+  box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com >"$TEST_TMP/out.txt" 2>&1
+  [ "$?" -eq 0 ]
+  [ "${runtime_args[*]}" = "--runtime=runc" ]
+  [ "$fallback_requested" -eq 1 ]
+  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"NOTICE: runsc failed to start or complete probe containers (exit 124); auto-selecting hardened-runc fallback for this run."* ]]
+  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"explicit hardened-runc fallback"* ]]
+}
+
+@test "auto-runtime kill-switch on rc=125 dies with startup remediation" {
+  _stub_docker 125
+  TEST_BOX_ALLOW_FALLBACK=0
+  export TEST_BOX_ALLOW_FALLBACK
+  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to start or complete probe containers (exit 125)"* ]]
+  [[ "$output" == *"fallback disabled via TEST_BOX_ALLOW_FALLBACK=0"* ]]
+  [[ "$output" == *"runsc --version"* ]]
+}
+
+@test "auto-runtime kill-switch on rc=2 keeps the DNS die text" {
+  _stub_docker 2
+  TEST_BOX_ALLOW_FALLBACK=0
+  export TEST_BOX_ALLOW_FALLBACK
+  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"runsc container DNS unreachable and fallback disabled via TEST_BOX_ALLOW_FALLBACK=0; refusing to start this run."* ]]
+}

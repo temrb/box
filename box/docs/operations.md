@@ -243,7 +243,7 @@ No runtime flag is needed for any tool run: the launcher probes container
 DNS under `runsc` first and stays on gVisor when healthy; only if the probe
 fails does it auto-select the hardened-runc fallback with a single
 `NOTICE` (plus the standard fallback `WARNING`, so the downgrade is never
-silent). `box-m login` and `box-m-login` share this probe (one login persists
+silent). Probe exits 1/2 print the container-DNS `NOTICE`; any other nonzero probe exit (runsc startup failure or timeout) prints a distinct `runsc failed to start or complete probe containers (exit N)` `NOTICE` instead, with identical healing and fail-closed behavior. `box-m login` and `box-m-login` share this probe (one login persists
 globally); `box-o` probes generic registry egress the same way. `--shell` runs
 never probe (explicit-only diagnostics path): use `--docker-fallback` there
 when needed, or `--runsc` anywhere to force gVisor with no probe.
@@ -251,11 +251,7 @@ when needed, or `--runsc` anywhere to force gVisor with no probe.
 closed with remediation instead of launching a run that would fail opaquely
 inside.
 `--docker-fallback` forces runc, `--runsc` forces gVisor.
-Docker embedded DNS (`127.0.0.11`) is unreachable under `runsc` on VPN
-hosts, which presents as `login failed: device flow transport error` (or
-`failed to fetch model catalog` / `(model … not in catalog — using assumed
-limits)` in TUI runs) — the AUTO probe heals this
-without flags (see `troubleshooting.md` §14).
+On hosts where the `runsc` sandbox cannot reach Docker embedded DNS (`127.0.0.11`) on the tool bridge networks — an endpoint-side, upstream-independent `runsc`/`127.0.0.11` gap (gVisor netstack owns sandbox loopback; `--dns` does not change the endpoint on custom bridges and does not heal it; host resolver, VPN residue, and firewall are exonerated as the differentiator) — tool runs present as `login failed: device flow transport error` (or `failed to fetch model catalog` / `(model … not in catalog — using assumed limits)` in TUI runs). The AUTO probe heals this without flags by auto-selecting hardened `runc` with `NOTICE` + `WARNING` (see `troubleshooting.md` §14 for the symptom class, decision procedure, and upstream refs).
 
 #### Working Directory & Relative Path Semantics
 - Host `pwd -P` is mounted non-recursively to container `/workspace`. A subdirectory run mounts only that subdirectory (git commands may fail there, and the `.git` worktree check only inspects the mounted directory) — run from the repo root for full-repo access.
