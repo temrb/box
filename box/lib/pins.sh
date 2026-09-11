@@ -58,6 +58,17 @@ box_load_all_pins() {
   _BOX_PINS_LOADED_FOR=$bundle
 }
 
+# Forget the cached bundle dir and re-parse every pin from <bundle_dir>.
+# update-pins.sh rewrites version files in-process, so the build after the
+# rewrite must see the new pins instead of the cached old ones.
+# Usage: box_reload_all_pins <bundle_dir>
+box_reload_all_pins() {
+  local bundle=${1:-}
+  [[ -n "$bundle" ]] || die 'Internal error: missing bundle dir for pins.'
+  unset _BOX_PINS_LOADED_FOR
+  box_load_all_pins "$bundle"
+}
+
 # Print one pin value to stdout (for the Makefile, which cannot source shell
 # code directly and must call via `bash -c`). Loads from <bundle_dir> each
 # call so `make` stays correct with no exported state. The name must be a

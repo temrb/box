@@ -13,6 +13,7 @@ load helpers
   [[ "$output" == *"pins"* ]]
   [[ "$output" == *"verify-generated"* ]]
   [[ "$output" == *"regen-validation"* ]]
+  [[ "$output" == *"update"* ]]
   [[ "$output" == *"clean"* ]]
 }
 
