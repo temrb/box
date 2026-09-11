@@ -9,6 +9,30 @@ them with the procedures below.
 
 ### 12. Upgrade & Version Synchronization Procedures
 
+#### Easy path: `make update` (both tools, CLI pins only)
+```bash
+bundle_dir=/path/to/box
+bash "$bundle_dir/update-pins.sh" --check  # report only, change nothing
+make -C "$bundle_dir" update              # fetch latest, rewrite pins, regen, rebuild, sync
+```
+`update-pins.sh` walks the bump checklist below for you: it fetches the
+latest Muse version + SHA-256 hashes from the channel manifest and the
+latest OpenCode version + `dist.integrity` pins from the npm registry,
+strict-parses every candidate before touching the bundle, rewrites both
+version files (all values together), moves the `verify.d` literals and the
+bats tripwires, regenerates `verify-*.sh` + the §4 pin table, runs
+`check-pins.sh` + both `--check` gates, rebuilds changed images via
+`lib/build.sh`, and syncs the installed copies in `~/.config/box-*/`.
+Flags: `--pins-only` stops before the Docker rebuild (no Engine needed);
+`--muse VERSION` / `--opencode VERSION` pin one tool to an explicit version
+instead of latest (hashes/integrities are still fetched for that version).
+Already-current tools are skipped (idempotent); a missing Engine fails
+before any mutation. See `update-pins.sh --help`.
+Skipped by design: Debian base digest, `NODE_VERSION` /
+`NODESOURCE_FINGERPRINT` (use the manual procedures below), the launcher
+smoke test (needs your project dir — the exact commands are printed at the
+end), and `make test` (run it as the final gate).
+
 #### Bump checklist (every pin change — versions, hashes, Node toolchain)
 The version files are the single source, but three generated/pinned
 consumers carry the resolved values as literals and must move with them:

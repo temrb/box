@@ -41,7 +41,7 @@ endif
 # the single source for lint coverage.
 # verify.d/*.sh partials are bash -n checked in verify-static (shellcheck runs
 # on the generated harnesses, not fragments).
-SHELL_FILES := lib/preflight.sh lib/tools.sh lib/docker.sh lib/launcher.sh lib/run.sh lib/pins.sh lib/build.sh lib/config.sh box-m box-o box-m-login verify-muse.sh verify-opencode.sh setup.sh check-pins.sh gen-verify.sh gen-pins.sh regen-validation.sh
+SHELL_FILES := lib/preflight.sh lib/tools.sh lib/docker.sh lib/launcher.sh lib/run.sh lib/pins.sh lib/build.sh lib/config.sh box-m box-o box-m-login verify-muse.sh verify-opencode.sh setup.sh check-pins.sh gen-verify.sh gen-pins.sh regen-validation.sh update-pins.sh
 
 # Docker CLI isolation lives in lib/build.sh via box_docker_cli
 # (lib/docker.sh probe): the build/clean targets below never hardcode
@@ -51,7 +51,7 @@ SHELL_FILES := lib/preflight.sh lib/tools.sh lib/docker.sh lib/launcher.sh lib/r
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build pin-check verify-static verify-generated verify-pins-generated pins test setup clean regen-validation FORCE
+.PHONY: help build pin-check verify-static verify-generated verify-pins-generated pins test setup clean regen-validation update FORCE
 
 help:
 	@echo 'Usage: make [target]'
@@ -64,6 +64,7 @@ help:
 	@echo '  verify-pins-generated  assert docs/architecture.md §4 == gen-pins.sh output'
 	@echo '  pin-check      assert version pins vs Dockerfile vs docs/architecture.md §4'
 	@echo '  pins           pin-check + verify-pins-generated over the one pin invariant'
+	@echo '  update         fetch latest CLI pins, regen, rebuild, sync (see update-pins.sh --help)'
 	@echo '  regen-validation  regenerate validation/resolved-config.json (needs Engine + image)'
 	@echo '  clean          remove all images for your UID/GID (keeps volumes)'
 
@@ -89,6 +90,9 @@ verify-pins-generated:
 	bash "$(BUNDLE_DIR)/gen-pins.sh" --check
 
 pins: pin-check verify-pins-generated
+
+update:
+	bash "$(BUNDLE_DIR)/update-pins.sh"
 
 regen-validation:
 	bash "$(BUNDLE_DIR)/regen-validation.sh"

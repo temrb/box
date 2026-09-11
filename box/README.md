@@ -10,7 +10,7 @@ Layout: `Dockerfile` (targets `base`, `muse`, `opencode`), `version-muse.env` /
 `version-opencode.env` (single pin source via `lib/pins.sh`), `box-m` /
 `box-o` / `box-m-login` (one-command browser login with a clear terminal
 link; bare `box` is the setup-managed default symlink, `box-m` out of the
-box), `check-pins.sh`,
+box), `check-pins.sh`, `update-pins.sh`,
 `gen-verify.sh` (+ `verify.d/` partials generating `verify-muse.sh` /
 `verify-opencode.sh`), `gen-pins.sh`, `regen-validation.sh`, `Makefile`,
 `settings.json` / `opencode.json`, `lib/` (see above), `setup.sh`, `docs/`.
