@@ -1,0 +1,32 @@
+#!/bin/bash -p
+# Privileged mode plus a fixed tool path keep project-controlled PATH entries
+# and inherited environment shell functions from executing on the host before
+# the Docker boundary exists.
+set -euo pipefail
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+BOX_TOOL=box-m
+# 1-line variant of the canonical self-dir bootstrap (see lib/tools.sh).
+script_dir=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f -- "${BASH_SOURCE[0]}")")
+# shellcheck source=lib/preflight.sh
+source "$script_dir/lib/preflight.sh"
+# shellcheck source=lib/tools.sh
+source "$script_dir/lib/tools.sh"
+# shellcheck source=lib/config.sh
+source "$script_dir/lib/config.sh"
+# shellcheck source=lib/docker.sh
+source "$script_dir/lib/docker.sh"
+# shellcheck source=lib/launcher.sh
+source "$script_dir/lib/launcher.sh"
+# shellcheck source=lib/run.sh
+source "$script_dir/lib/run.sh"
+# shellcheck source=lib/pins.sh
+source "$script_dir/lib/pins.sh"
+# shellcheck source=lib/build.sh
+source "$script_dir/lib/build.sh"
+
+# shellcheck source=harnesses/muse/native.sh
+source "$script_dir/harnesses/muse/native.sh"
+# shellcheck source=harnesses/muse/launch.sh
+source "$script_dir/$(box_tool_field muse launch_adapter)"

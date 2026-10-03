@@ -1,0 +1,16 @@
+# type(scope): subject, imperative, lowercase, <=50 chars, no period
+# e.g. feat(auth): add password reset
+#
+# Body: what and why, wrap at 72 chars. Blank line above/below.
+# Explain the problem, the solution, and alternatives considered.
+#
+# Footer: Fixes #123, Refs #456, BREAKING CHANGE: description
+#
+# Guidance (stripped from commit - do not uncomment):
+#  type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+#  scope: optional, e.g. api, ui, auth, docs, deps
+#  subject: imperative, lowercase, no trailing period
+#  body: explain what and why, not how; wrap at 72 chars
+#  footer: e.g. Fixes #123, Refs #456, BREAKING CHANGE: describe breakage
+#  Keep commits focused; separate unrelated changes.
+#  Never commit secrets or credentials; check staged files before committing.

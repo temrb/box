@@ -1,0 +1,105 @@
+NOTE (2026-10-02 v2 cutover): this report remains historical. Its companion
+resolved-config.json and config-stderr.txt were replaced by current redacted v2
+source inspection; current pins/runtime/source hashes are recorded in
+box/docs/evidence/opencode-v2-cutover.md. Source inspection is not enforcement.
+
+HISTORICAL RECORD — captured 2026-09-08, before harness packaging and Codex.
+The original record omitted revision, exact pins, architecture, runtime, and
+auth mode; those dimensions are UNAVAILABLE, not current acceptance evidence.
+Commands/paths below describe that historical layout and may be superseded.
+Current evidence and explicit unmet gates: box/docs/acceptance.md.
+
+Sandbox validation report — refreshed 2026-09-08 (UTC) for the then-current bundle.
+Bundle files: box-m, box-o, box-m-login (installed real files; bare `box`
+is the setup-managed default symlink), lib/preflight.sh, lib/config.sh,
+lib/docker.sh, lib/launcher.sh, lib/run.sh, lib/pins.sh, lib/build.sh,
+verify-muse.sh, verify-opencode.sh (generated from verify.d/ via
+gen-verify.sh), setup.sh, Dockerfile (targets base/muse/opencode),
+check-pins.sh, gen-verify.sh, gen-pins.sh, regen-validation.sh,
+Makefile, settings.json, opencode.json, version-muse.env,
+version-opencode.env, .dockerignore, README.md + docs/, keys/nodesource.asc
+(vendored APT key), tests/bats/ (unit suite), validation/ (this report +
+resolved-config.json + config-stderr.txt), .github/workflows/verify.yml (CI).
+
+Static checks (no daemon needed — re-run these after any edit; run from box/):
+  make verify-static
+  make pin-check
+  make verify-pins-generated
+  # verify-static covers: bash -n over SHELL_FILES + verify.d/*.sh (split lib,
+  #   launchers, verify harnesses, setup.sh, checkers, generators),
+  #   jq empty opencode.json settings.json, shellcheck (required) over the
+  #   same files, gen-verify.sh --check (generated == checked-in, implies
+  #   §§1-2/5 sync), and gen-pins.sh --check (pin table == version files).
+  # pin-check loads every pin via lib/pins.sh and asserts Dockerfile ARG
+  #   names (no defaults), the single base digest, the parameterized Node
+  #   install + fingerprint assert, tarball-to-pin strength, build delegation,
+  #   and the docs/architecture.md pin table.
+  test -f "$HOME/.local/bin/box-m" && test ! -L "$HOME/.local/bin/box-m"
+  test -f "$HOME/.local/bin/box-o" && test ! -L "$HOME/.local/bin/box-o"
+  test -f "$HOME/.local/bin/box-m-login" && test ! -L "$HOME/.local/bin/box-m-login"
+  test -L "$HOME/.local/bin/box" && test "$(readlink "$HOME/.local/bin/box")" = box-m
+  test ! -e "$HOME/.local/bin/asdf1" && test ! -e "$HOME/.local/bin/asdf2"
+  for legacy in muse-sandbox opencode-sandbox muse-login sb-m sb-o sb-m-login; do
+    test ! -e "$HOME/.local/bin/$legacy" || echo "STALE: $legacy"
+  done; unset legacy
+
+Behavioral checks (no daemon; use --dry-run from a scratch project):
+  PASS launcher dry-run: docker resolution, dedicated CLI configuration
+    (--config .../docker-cli, content enforced to {}), runsc default,
+    hardening flags, nonrecursive/private project bind, no credential values
+  PASS provider keys pass by NAME only (--env NAME, never =value)
+  PASS launcher ignores hostile PATH entries and exported id() functions
+    (fixed tool path + bash -p)
+  PASS preflight rejects: physical home, physical credential dirs and their
+    symlinked targets under a symlinked $HOME, project containing the home,
+    host system dirs (/ /root /etc /dev /proc /sys /run /usr /boot /var /tmp
+    /opt /mnt /media /srv /data /workspace), project-contained
+    sockets/devices/FIFOs (mkfifo, AF_UNIX sockets), project symlinks into
+    system dirs / $HOME / credential paths, external Git worktree metadata
+  PASS strict version-file parsing: missing file, CRLF, unknown keys, and bad
+    MUSE_VERSION / SHA256 / OPENCODE_VERSION / dist.integrity values fail
+  PASS credentials parsing: missing file, unknown keys, empty values,
+    wrong owner/mode, in-project location fail; inherited allowlisted env
+    unset before parsing; --dry-run skips file access and forwards no keys
+  PASS explicit runc selection with stderr WARNING (automatic selection is
+    separately described below),
+    *_ALLOW_FALLBACK=0 kill-switch; explicit image overrides print a WARNING
+    and skip all pin-label checks (version + SHA/integrity)
+  PASS muse bypass: --disable-sandbox auto-injected, =value forms detected
+    (no double-inject), --yolo equivalence, --version/--help/-h/login/logout/auth
+    first-arg suppression (documented $1-only limit),
+    BOX_M_INNER_FLAG override (unknown BOX_M_BOX_FLAG ignored)
+  PASS AUTO runtime (box_auto_runtime): every tool run probes runsc DNS,
+    falls back only if needed (NOTICE + WARNING, never silent); --shell
+    stays explicit-only; --runsc forces gVisor with no probe;
+    box-m-login propagates launcher failures via PIPESTATUS[0]
+  PASS terminal keys forward NAME-only when set (TERM, COLORTERM,
+    TERM_PROGRAM/VERSION, NO_COLOR, FORCE_COLOR, CLICOLOR_FORCE),
+    skipped when unset; set-but-empty flags survive the hop
+  PASS TUI theme sync fills missing host theme keys (tui.theme,
+    tui.color_depth, tui.terminal_background) once; existing sandbox
+    values always win and later host changes do not propagate
+  PASS verifier capability parsing: awk over /proc/self/status plus capsh
+    (`Current:` always FAIL; `Bounding set` FAIL on runc, WARNING on runsc)
+
+Live checks (require Docker Engine >= 25 + runsc; see docs/operations.md §11 on host):
+  builds, runsc execution, host-side docker inspect, inner bwrap/unshare
+  probes, provider/model/API reachability.
+
+Artifacts in this directory:
+  resolved-config.json — captured `opencode debug config` output
+    (secret-shaped fields redacted to "validation-placeholder"). Regenerate with
+    `make regen-validation` (runs the container, redacts mechanically, and
+    diffs the pinned permission section against the shipped
+    opencode.json (no model or provider pin — pure /connect); merged
+    defaults such as agents/openai models are ignored
+    by design). verify-opencode.sh §4 asserts both the bind file and the
+    effective `opencode debug config` permission set.
+  config-stderr.txt — captured config-load stderr from that run (one-line
+    sentinel when the load was clean, raw stderr otherwise).
+
+NOT RUN here as harness steps: provider/model/API requests (outside
+validation scope); runsc execution and host-side docker inspect (need a
+real daemon). The one-off live model-catalog snapshot cited in
+troubleshooting.md §14 (2026-09-07) is a manual observation, not a
+harness step, and is not re-verified by this report.

@@ -1,0 +1,9 @@
+# Only actual image inputs. Host adapters, state, credentials and docs excluded.
+**
+!Dockerfile
+!harnesses/
+!harnesses/opencode/
+!harnesses/opencode/entrypoint.sh
+!harnesses/codex/
+!harnesses/codex/policy/
+!harnesses/codex/policy/requirements.toml

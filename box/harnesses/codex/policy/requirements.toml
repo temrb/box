@@ -1,0 +1,10 @@
+# Image-owned startup/runtime constraints. Rebuild the image to update.
+allowed_approval_policies = ["on-request"]
+allowed_approvals_reviewers = ["user"]
+default_permissions = ":danger-full-access"
+cli_auth_credentials_store = "file"
+check_for_update_on_startup = false
+sqlite_home = "/persist/state/codex"
+
+[allowed_permission_profiles]
+":danger-full-access" = true

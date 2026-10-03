@@ -1,0 +1,14 @@
+{
+  "$schema": "https://dev.meta.ai/schemas/muse-settings-v1.json",
+  "schema_version": 1,
+  "model": "muse-spark-1.3",
+  "reasoning_effort": "max",
+  "approval_mode": "on-request",
+  "approval_judge": true,
+  "telemetry": {
+    "enabled": false
+  },
+  "api": {
+    "base_url": "https://api.meta.ai/v1"
+  }
+}
