@@ -110,6 +110,15 @@ done
 unset _setup_id
 box_load_all_pins "$bundle_dir"
 
+# Serialize setup for this physical home before inspecting installed state.
+# Lock the directory itself so waiting installers cannot race through an
+# unlinked lock file, and planning failures still leave the home untouched.
+command -v flock >/dev/null || die 'flock is required (util-linux).'
+_setup_home=$(box_plan_directory "$HOME")
+exec {setup_lock_fd}<"$_setup_home" || die 'Cannot open setup lock.'
+flock -x "$setup_lock_fd" || die 'Cannot acquire setup lock.'
+unset _setup_home
+
 # Validate file destinations as part of planning, before creating any dirs.
 # install(1) can otherwise follow an existing destination symlink.
 setup_plan_file() {

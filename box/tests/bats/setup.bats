@@ -217,7 +217,35 @@ load helpers
   [ -z "$(find "$TEST_TMP" -name '.box-install.*' -print -quit)" ]
 }
 
+@test "setup waits for the home lock before planning installed pins" {
+  exec {lock_fd}<"$HOME"
+  flock -x "$lock_fd"
+  # Close the inherited lock descriptor so setup takes its own lock.
+  (exec {lock_fd}<&-; exec bash "$BUNDLE_DIR/setup.sh" --skip-build) > "$TEST_TMP/setup.log" 2>&1 &
+  installer=$!
+  opened=0
+  for (( attempt=0; attempt<200; attempt++ )); do
+    for fd in /proc/"$installer"/fd/*; do
+      if [[ "$(readlink "$fd")" == "$HOME" ]]; then opened=1; break; fi
+    done
+    (( opened )) && break
+    sleep 0.05
+  done
+  # Change installed state while setup is waiting; it must plan after release.
+  mkdir -p "$HOME/.config/box-o"
+  printf 'OPENCODE_VERSION=1.18.34\nOPENCODE_NPM_INTEGRITY=legacy\n' > "$HOME/.config/box-o/version-opencode.env"
+  flock -u "$lock_fd"
+  exec {lock_fd}<&-
+  wait "$installer" && installer_rc=0 || installer_rc=$?
+  cat "$TEST_TMP/setup.log" >&2
+  [ "$opened" -eq 1 ]
+  [ "$installer_rc" -ne 0 ]
+  [[ "$(cat "$TEST_TMP/setup.log")" == *'Incompatible installed opencode pins'* ]]
+  [ ! -e "$HOME/.local" ]
+}
+
 @test "concurrent setup preserves a consistent installed package" {
+  command -v docker >/dev/null || skip 'no docker binary'
   box_docker_cli "$TEST_TMP/docker-cli"
   "${docker_cmd[@]}" info >/dev/null 2>&1 || skip 'local Docker Engine unavailable'
   bash "$BUNDLE_DIR/setup.sh" --skip-build > "$TEST_TMP/setup-first.log" 2>&1 &
@@ -226,6 +254,9 @@ load helpers
   second=$!
   wait "$first" && first_rc=0 || first_rc=$?
   wait "$second" && second_rc=0 || second_rc=$?
+  if (( first_rc != 0 || second_rc != 0 )); then
+    cat "$TEST_TMP/setup-first.log" "$TEST_TMP/setup-second.log" >&2
+  fi
   [ "$first_rc" -eq 0 ]
   [ "$second_rc" -eq 0 ]
   for lib in "$BUNDLE_DIR"/lib/*.sh; do cmp "$lib" "$HOME/.local/bin/lib/${lib##*/}"; done

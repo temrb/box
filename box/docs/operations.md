@@ -11,7 +11,7 @@ instructions; verify `docker version`, `docker info`, and `runsc --version`.
 Rootless/userns remapping and macOS hosts are not covered by this mapping design.
 Native ARM64 runtime support remains unaccepted until tested on that architecture.
 
-Host tools: Bash, coreutils, findutils, Git, jq, curl, and Python 3.11+ for TOML
+Host tools: Bash, coreutils, findutils, util-linux (`flock`), Git, jq, curl, and Python 3.11+ for TOML
 consumers. JSON launchers retain their existing prerequisites; they do not load
 Python during launch. Static verification also requires ShellCheck and Bats.
 On Debian install validation packages with the package manager; verify Python
@@ -37,6 +37,10 @@ are local only. Never `docker push`, save, or export built images.
 A build pass does not establish login or permission acceptance.
 
 ### 8. Setup and migration
+
+Concurrent setup runs for the same home directory wait for one another before
+planning or changing installed files. The home directory itself is locked;
+no lock file is created, and the lock is released when setup exits.
 
 ```bash
 make -C box setup
