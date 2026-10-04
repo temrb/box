@@ -274,3 +274,19 @@ Legacy preference backups use `.box-legacy` and mode 600. Do not remove homes
 or volumes to refresh preferences: these also contain auth, trust and sessions.
 Dry-run reports root, container working directory, selected defaults and
 recognized directory configuration paths without mutation.
+
+Host Python helpers use isolated imports (`python3 -I`), including TOML parsing
+and Codex trust migration. Project modules and inherited Python import settings
+do not participate in these helpers.
+
+Launcher cancellation bounds Docker stop to 10 seconds plus a 2-second kill
+grace, then gives the Docker client 2 seconds before KILL and reaping. Failed
+container stops emit a warning with the container name. `box-m-login` forwards
+cancellation to its delegated launcher and waits for cleanup; a 16-second bound
+covers that launcher cleanup before forced termination.
+
+Native acceptance captures OpenCode validation into its disposable fixture.
+Checkout evidence is refreshed only through the explicit regeneration target.
+For a separate capture, `box/regen-validation.sh --output-dir DIR` writes
+`resolved-config.json` and `config-stderr.txt` there; `--check` validates without
+writing either artifact.

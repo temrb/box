@@ -9,7 +9,7 @@ box_config_require_parser() {
   case "${1:-}" in
     *.json) command -v jq >/dev/null || die 'jq is required for JSON configuration.' ;;
     *.toml)
-      if ! command -v python3 >/dev/null || ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+      if ! command -v python3 >/dev/null || ! python3 -I -c 'import tomllib' >/dev/null 2>&1; then
         die 'Python 3.11+ with tomllib is required for TOML configuration.'
       fi ;;
     *) die 'Unsupported configuration extension (expected .json or .toml).' ;;
@@ -26,7 +26,7 @@ box_config_validate() {
       jq -e -s 'length == 1 and (.[0] | type == "object")' -- "$file" >/dev/null 2>&1 \
         || die "Invalid JSON configuration (expected one object): $file" ;;
     *.toml)
-      python3 - "$file" <<'PY' || die "Invalid TOML configuration: $file"
+      python3 -I - "$file" <<'PY' || die "Invalid TOML configuration: $file"
 import sys, tomllib
 try:
     with open(sys.argv[1], "rb") as source:
@@ -60,7 +60,7 @@ box_config_get() {
       ' -- "$file" 2>/dev/null \
         || die "Configuration lacks $kind $path." ;;
     *.toml)
-      python3 - "$file" "$path" "$kind" <<'PY' || die "Configuration lacks $kind $path."
+      python3 -I - "$file" "$path" "$kind" <<'PY' || die "Configuration lacks $kind $path."
 import json, sys, tomllib
 try:
     with open(sys.argv[1], "rb") as source:

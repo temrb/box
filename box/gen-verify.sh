@@ -101,7 +101,7 @@ gen_one() {
     if [[ "$artifact_format" == json ]]; then
       artifact_json=$(jq -c . "$artifact_src") || die 'Cannot read artifact JSON.'
     else
-      artifact_json=$(python3 -c 'import sys,tomllib,json; print(json.dumps(tomllib.load(open(sys.argv[1], "rb")),separators=(",",":")))' "$artifact_src") || die 'Cannot read artifact TOML.'
+      artifact_json=$(python3 -I -c 'import sys,tomllib,json; print(json.dumps(tomllib.load(open(sys.argv[1], "rb")),separators=(",",":")))' "$artifact_src") || die 'Cannot read artifact TOML.'
     fi
     artifact_json=$(printf '%q' "$artifact_json")
     _tok_esc=$(printf '%s' "$artifact_json" | sed -e 's/[\\&|]/\\&/g')
@@ -109,7 +109,7 @@ gen_one() {
   done
   if grep -Fq '@@NATIVE_PROBE@@' "$tmp"; then
     [[ -f "$bundle_dir/harnesses/$tool/native-probe.py" ]] || die 'Missing native probe consumer.'
-    python3 - "$tmp" "$bundle_dir/harnesses/$tool/native-probe.py" <<'PYPROBE'
+    python3 -I - "$tmp" "$bundle_dir/harnesses/$tool/native-probe.py" <<'PYPROBE'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 p.write_text(p.read_text().replace("@@NATIVE_PROBE@@", pathlib.Path(sys.argv[2]).read_text()))

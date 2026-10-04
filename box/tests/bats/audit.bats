@@ -332,6 +332,28 @@ codex_fixture() {
   [ "$status" -ne 0 ]
 }
 
+@test "Codex validator allows changed and omitted preferences but protects policy" {
+  copy="$TEST_TMP/preferences-bundle"
+  cp -r "$BUNDLE_DIR" "$copy"
+  config="$copy/harnesses/codex/config/config.toml"
+  sed -i 's/^plan_mode_reasoning_effort = .*/plan_mode_reasoning_effort = "medium"/; s/^model = .*/model = "custom-model"/; /^personality = /d' "$config"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -eq 0 ]
+  sed -i 's/^approval_policy = .*/approval_policy = "never"/' "$config"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Unsupported Codex managed policy or seed'* ]]
+}
+
+@test "Codex validator identifies invalid preference types" {
+  copy="$TEST_TMP/preferences-bundle"
+  cp -r "$BUNDLE_DIR" "$copy"
+  sed -i 's/^plan_mode_reasoning_effort = .*/plan_mode_reasoning_effort = 42/' "$copy/harnesses/codex/config/config.toml"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Invalid Codex preference type: plan_mode_reasoning_effort'* ]]
+}
+
 @test "Codex native probe fails closed when policy inspection is unavailable" {
   BOX_CODEX_BINARY=/bin/false run python3 "$BUNDLE_DIR/harnesses/codex/native-probe.py" --policy-json '{}'
   [ "$status" -ne 0 ]

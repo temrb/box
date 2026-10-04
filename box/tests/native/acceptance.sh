@@ -100,7 +100,7 @@ check_opencode() {
   fi
   grep -Fq 'FAIL: no provider auth: connect natively via /connect' "$task_root/readiness.log" || return 1
   printf 'PASS: opencode/%s empty native credential store fails readiness\n' "$flag"
-  env HOME="$test_home" bash "$bundle_dir/harnesses/opencode/capture-validation.sh" "$flag" || return 1
+  env HOME="$test_home" bash "$bundle_dir/harnesses/opencode/capture-validation.sh" --output-dir "$task_root/validation" "$flag" || return 1
   env HOME="$test_home" bash "$bundle_dir/harnesses/opencode/capture-validation.sh" --check "$flag" || return 1
   legacy="box-o-u$host_uid-g$host_gid-$hash"
   volumes+=("$legacy")
@@ -209,7 +209,7 @@ for runtime in runsc runc; do
       grep -E '^FAIL:|command not found|Permission denied' "$task_root/full.log" || true
     fi
   done
-  policy=$(python3 -c 'import json,tomllib,sys; print(json.dumps(tomllib.load(open(sys.argv[1],"rb"))))' "$bundle_dir/harnesses/codex/policy/requirements.toml")
+  policy=$(python3 -I -c 'import json,tomllib,sys; print(json.dumps(tomllib.load(open(sys.argv[1],"rb"))))' "$bundle_dir/harnesses/codex/policy/requirements.toml")
   # shellcheck disable=SC2016 # literal script runs inside the container
   if env HOME="$test_home" "$test_home/.local/bin/box-c" "$runtime_flag" --shell \
     -c 'python3 - --policy-json "$1" --conflicts' _ "$policy" \

@@ -196,3 +196,38 @@ RUNNER
   [ "$status" -ne 0 ]
   [[ "$output" == *"$TEST_PROJ/.muse/settings.json"* ]]
 }
+
+@test "Codex launch and trust migration ignore project Python modules and import settings" {
+  export BOX_C_CONFIG="$TEST_TMP/codex-defaults.toml"
+  cp "$BUNDLE_DIR/harnesses/codex/config/config.toml" "$BOX_C_CONFIG"
+  chmod 600 "$BOX_C_CONFIG"
+  export BOX_C_VERSION_FILE="$BUNDLE_DIR/harnesses/codex/version-codex.env"
+  export BOX_C_ENV_FILE="$TEST_TMP/providers.env"
+  export BOX_C_STATE_ROOT="$TEST_TMP/codex-state"
+  : >"$BOX_C_ENV_FILE"
+  chmod 600 "$BOX_C_ENV_FILE"
+  hash=$(printf '%s' "$TEST_PROJ" | sha256sum); hash=${hash:0:20}
+  native_home="$BOX_C_STATE_ROOT/$hash/codex-home"
+  mkdir -p "$native_home"
+  chmod 700 "$BOX_C_STATE_ROOT" "$BOX_C_STATE_ROOT/$hash" "$native_home"
+  printf '[projects."/workspace"]\ntrust_level = "trusted"\n' >"$native_home/config.toml"
+  chmod 600 "$native_home/config.toml"
+  for module in tomllib json sitecustomize; do
+    printf 'raise RuntimeError("project module executed")\n' >"$TEST_PROJ/$module.py"
+  done
+  cat >"$TEST_TMP/codex-launch.sh" <<'SCRIPT'
+set -euo pipefail
+BOX_TOOL=box-c
+script_dir=$1
+for library in preflight tools config docker launcher run pins build config-file; do
+  source "$script_dir/lib/$library.sh"
+done
+box_docker_cli() { docker_cmd=(true); }
+box_docker_exec() { :; }
+source "$script_dir/harnesses/codex/launch.sh" --runsc --project-root "$PWD" --shell -c true
+SCRIPT
+  cd "$TEST_PROJ"
+  run env PYTHONPATH="$TEST_PROJ" PYTHONHOME="$TEST_TMP/missing-home" bash "$TEST_TMP/codex-launch.sh" "$BUNDLE_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$native_home/config.toml")" == *'trust_level = "trusted"'* ]]
+}

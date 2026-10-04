@@ -22,12 +22,19 @@ launcher="$HOME/.local/bin/box-o"
 
 check_only=0
 runtime_flag=--runsc
-for argument in "$@"; do
-  case "$argument" in
+while (($#)); do
+  case "$1" in
     --check) check_only=1 ;;
-    --runsc|--docker-fallback) runtime_flag=$argument ;;
-    *) die "Unknown argument: $argument (usage: regen-validation.sh [--check] [--runsc|--docker-fallback])" ;;
+    --runsc|--docker-fallback) runtime_flag=$1 ;;
+    --output-dir)
+      [[ $# -ge 2 && -n $2 ]] || die '--output-dir requires a directory.'
+      mkdir -p -- "$2" || die 'Cannot create output directory.'
+      resolved="$(realpath -- "$2")/resolved-config.json"
+      resolved_stderr="$(realpath -- "$2")/config-stderr.txt"
+      shift ;;
+    *) die "Unknown argument: $1 (usage: regen-validation.sh [--check] [--output-dir DIR] [--runsc|--docker-fallback])" ;;
   esac
+  shift
 done
 
 [[ -f "$shipped" ]] || die "Missing shipped config: $shipped"

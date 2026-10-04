@@ -490,3 +490,53 @@ _muse_login_stub() {
   [ "$status" -eq 0 ]
   [[ "$output" == *--project-root*"$TEST_PROJ"*login* ]]
 }
+
+@test "login wrapper-only TERM waits for delegated cleanup" {
+  _muse_login_stub
+  cat >"$stub/box-m" <<'STUB'
+#!/bin/bash
+trap 'printf cleaned >"$HOME/cleaned"; exit 143' TERM
+printf '%s' "$$" >"$HOME/login-pid"
+while :; do sleep 0.1; done
+STUB
+  chmod +x "$stub/box-m"
+  "$stub/box-m-login" >"$TEST_TMP/login.log" 2>&1 &
+  wrapper=$!
+  for ((i=0; i<100; i++)); do
+    [ ! -s "$HOME/login-pid" ] || break
+    sleep 0.05
+  done
+  [ -s "$HOME/login-pid" ]
+  delegated=$(cat "$HOME/login-pid")
+  kill -TERM "$wrapper"
+  rc=0
+  wait "$wrapper" || rc=$?
+  [ "$rc" -eq 143 ]
+  [ -e "$HOME/cleaned" ]
+  ! kill -0 "$delegated" 2>/dev/null
+}
+
+@test "login process-group TERM waits for delegated cleanup" {
+  _muse_login_stub
+  cat >"$stub/box-m" <<'STUB'
+#!/bin/bash
+trap 'trap "" TERM; printf cleaned >"$HOME/group-cleaned"; exit 143' TERM
+printf '%s' "$$" >"$HOME/group-pid"
+while :; do sleep 0.1; done
+STUB
+  chmod +x "$stub/box-m"
+  setsid "$stub/box-m-login" >"$TEST_TMP/group.log" 2>&1 &
+  wrapper=$!
+  for ((i=0; i<100; i++)); do
+    [ ! -s "$HOME/group-pid" ] || break
+    sleep 0.05
+  done
+  [ -s "$HOME/group-pid" ]
+  delegated=$(cat "$HOME/group-pid")
+  kill -TERM -- "-$wrapper"
+  rc=0
+  wait "$wrapper" || rc=$?
+  [ "$rc" -eq 143 ]
+  [ -e "$HOME/group-cleaned" ]
+  ! kill -0 "$delegated" 2>/dev/null
+}

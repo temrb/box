@@ -47,7 +47,7 @@ box_realpath() {
   fi
   command -v python3 >/dev/null 2>&1 \
     || die 'Cannot canonicalize path: realpath, readlink, and python3 are all missing.'
-  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path"
+  python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path"
 }
 
 # mktemp honoring TMPDIR (never hardcoded /tmp for non-secrets; secrets use

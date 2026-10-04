@@ -327,10 +327,26 @@ box_docker_exec() {
 # Stop only this launcher's container; release persistent locks and EXIT snapshots.
 box_interrupt_client() {
   local signal=$1 status=$2 client_pid=$3
-  trap - INT TERM HUP
+  trap '' INT TERM HUP
   kill -s "$signal" "$client_pid" 2>/dev/null || true
-  timeout --kill-after=2 10 "${docker_cmd[@]}" stop --time 5 "$container" >/dev/null 2>&1 || true
-  kill -TERM "$client_pid" 2>/dev/null || true
-  wait "$client_pid" 2>/dev/null || true
+  if ! timeout --kill-after=2 10 "${docker_cmd[@]}" stop --time 5 "$container" >/dev/null 2>&1; then
+    printf '%s: WARNING: could not stop container %s; check Docker cleanup.\n' "$BOX_TOOL" "$container" >&2
+  fi
+  box_terminate_client "$client_pid"
   exit "$status"
+}
+
+# Bound TERM grace before KILL and reap; Bash reaps exited background jobs
+# while polling, so a completed child does not consume the remaining grace.
+box_terminate_client() {
+  local client_pid=$1 grace=${2:-2} attempt
+  kill -TERM "$client_pid" 2>/dev/null || true
+  for ((attempt=0; attempt<grace*10; attempt++)); do
+    kill -0 "$client_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if ((attempt == grace*10)); then
+    kill -KILL "$client_pid" 2>/dev/null || true
+  fi
+  wait "$client_pid" 2>/dev/null || true
 }

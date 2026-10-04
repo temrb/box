@@ -65,7 +65,7 @@ if (( ! dry_run )); then
   box_backup_preferences "$codex_home/config.toml"
   if [[ -f "$codex_home/config.toml" ]]; then
     # Preserve native trust records only; all preferences inherit live defaults.
-    trust_config=$(python3 - "$codex_home/config.toml" <<'TRUST'
+    trust_config=$(python3 -I - "$codex_home/config.toml" <<'TRUST'
 import json, sys, tomllib
 with open(sys.argv[1], 'rb') as f:
     data = tomllib.load(f)

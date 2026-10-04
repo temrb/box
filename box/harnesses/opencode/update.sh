@@ -45,7 +45,7 @@ resolve_opencode() {
     fi
     computed=$(sha256sum -- "$file"); computed=${computed%% *}
     [[ "$computed" =~ ^[0-9a-f]{64}$ ]] || { rm -f -- "$file"; die "Invalid OpenCode digest for $arch@$version."; }
-    if ! python3 "$bundle_dir/harnesses/opencode/archive.py" "$file" "$arch"; then
+    if ! python3 -I "$bundle_dir/harnesses/opencode/archive.py" "$file" "$arch"; then
       rm -f -- "$file"; die "Corrupted/incomplete OpenCode asset: $arch@$version"
     fi
     rm -f -- "$file"
