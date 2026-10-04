@@ -1,11 +1,8 @@
 # shellcheck shell=bash
-# Re-assert the safety-critical settings keys from the seed source into the
-# persisted writable copy on every launch. The persisted file stays
-# user-writable by design (in-container /models changes persist), so without
-# this an in-container agent could durably weaken approval_mode,
-# approval_judge, telemetry.enabled, or api.base_url. Only those four keys
-# are reverted to the seed values; model, reasoning_effort, and unknown keys
-# are preserved (reasoning_effort drift still fails verify: pin+detect).
+# Re-assert safety-critical keys from the selected defaults after merging
+# directory preferences into a private launch snapshot. Only approval_mode,
+# approval_judge, telemetry.enabled and api.base_url are enforced; other
+# merged preferences are preserved. The finished snapshot is mounted read-only.
 # Fails closed on missing jq, non-object JSON, or a seed lacking any
 # enforced key. No-op (no rewrite, mtime untouched) when already compliant
 # (via box_write_if_changed, atomic mktemp+rename).

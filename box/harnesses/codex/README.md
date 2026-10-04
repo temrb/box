@@ -9,7 +9,7 @@
 host, bundled rg, and bwrap. Build with `make -C box build-c`. Verified ARM64
 archive bytes/layout do not establish native ARM64 runtime support.
 
-[config/config.toml](config/config.toml) is the writable seed, including the
+[config/config.toml](config/config.toml) is the live system default, including the
 selected model and agent/UI preferences. Its approval, permission, credential,
 update, and SQLite settings match the image policy. [policy/requirements.toml](policy/requirements.toml) is image-owned at
 `/etc/codex/requirements.toml`, root-owned 644. It constrains on-request approval,
@@ -68,12 +68,15 @@ removes native cached auth for this project; explicitly remove the provider-file
 key too if it should no longer be available. Cache transfer/API mode persistence
 still need account-dependent acceptance evidence.
 
-Setup refreshes `~/.config/box-c/config.toml` with one `.bak`. Only absent project
-configs are seeded from `BOX_C_CONFIG` or that installed template. To adopt a
-new template, stop the project, back up and explicitly merge/replace that home's
-config while retaining auth/transcripts; do not delete the home to refresh
-preferences. Policy changes require an image rebuild. `--dry-run` creates no
-home/config/CLI state and does not read keys. No model turn is used by the
+Setup refreshes `~/.config/box-c/config.toml` with one `.bak`. Every launch mounts
+`BOX_C_CONFIG` or that installed default read-only at `/etc/codex/config.toml`.
+Native `.codex/config.toml` discovery runs from repository root to launch directory,
+subject to native trust and project-field restrictions. Home preference overrides
+are reset under an exclusive lock held throughout the client run. The original
+home configuration is backed up once as `config.toml.box-legacy`; native project
+trust records remain in the home config. Auth and transcripts are retained.
+Policy changes require an image rebuild. `--dry-run` creates no home/config/CLI
+state and does not read keys. No model turn is used by the
 bounded [native probe](native-probe.py); it checks loaded requirements,
 effective config, normalized thread policy, and conflicting native overrides.
 

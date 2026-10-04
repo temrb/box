@@ -104,7 +104,7 @@ load helpers
   [ "$status" -eq 0 ]
   [ "$(box_tool_field codex launcher)" = box-c ]
   [ "$(box_artifact_field codex policy role)" = managed-image ]
-  [ "$(box_artifact_field codex config lifecycle)" = refresh-seed-if-absent ]
+  [ "$(box_artifact_field codex config lifecycle)" = refresh-live ]
 }
 
 @test "registry label pairs reference declared pins and sane label keys" {

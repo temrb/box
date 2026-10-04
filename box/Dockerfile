@@ -18,7 +18,7 @@ ARG HOST_GID
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash build-essential ca-certificates curl fd-find findutils git grep \
-    jq libcap2-bin procps ripgrep tree unzip xz-utils \
+    jq libcap2-bin util-linux procps ripgrep tree unzip xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 

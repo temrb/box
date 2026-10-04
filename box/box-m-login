@@ -16,7 +16,7 @@
 # selection (NOTICE + WARNING on fallback, never silent).
 # Pass --docker-fallback to force runc, --runsc to force gVisor.
 # Honors BOX_M_ALLOW_FALLBACK=0 (fail closed instead of falling back).
-# Run from the project root (same constraint as box-m: CWD == project).
+# Run from any project directory; box-m discovers the workspace root.
 #
 # NOTE: the output filter below is a pure-bash read loop on purpose. An awk
 # filter was tried first and silently swallowed all output while `muse login`
@@ -39,11 +39,12 @@ source "$script_dir/harnesses/muse/native.sh"
 
 usage() {
   cat <<'EOF'
-Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run]
+Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run] [--project-root PATH]
        box-m-login --help
 One-command Meta browser login. Prints a clear sign-in link in this
 terminal, then waits for host-browser approval.
-Run from the project root. Runtime is AUTO by default: `box-m login`
+Run from any project directory. --project-root PATH selects a non-Git root.
+Runtime is AUTO by default: `box-m login`
 probes container DNS under runsc first and auto-selects the hardened-runc
 fallback only if needed. --docker-fallback forces runc, --runsc forces
 gVisor. Honors BOX_M_ALLOW_FALLBACK=0 (fail closed).
@@ -81,6 +82,7 @@ else
   if ((explicit_runsc)); then launcher_args+=(--runsc); fi
 fi
 if ((dry_run)); then launcher_args+=(--dry-run); fi
+if [[ -n "$project_root_arg" ]]; then launcher_args+=(--project-root "$project_root_arg"); fi
 
 if ((dry_run)); then
   exec "$launcher" "${launcher_args[@]}" login

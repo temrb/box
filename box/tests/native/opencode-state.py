@@ -21,7 +21,10 @@ if sys.argv[1] == 'first':
     prefs.write_text(json.dumps({'theme': 'system'}))
     marker.write_text('fixture')
 else:
-    assert json.loads(prefs.read_text()) == {'theme': 'system'}
+    assert not prefs.exists(), 'Saved UI preferences must reset before startup'
+    backup = prefs.with_name('cli.json.box-legacy')
+    assert json.loads(backup.read_text()) == {'theme': 'system'}
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
     assert marker.read_text() == 'fixture'
 result = subprocess.run(['opencode', 'debug', 'config'], check=True,
                         capture_output=True, text=True, timeout=30)
@@ -34,4 +37,4 @@ subprocess.run(['opencode', 'service', 'stop'], capture_output=True, timeout=30,
 database = pathlib.Path('/persist/data/opencode/opencode/opencode.db')
 assert not database.is_symlink() and database.is_file()
 assert database.stat().st_uid == os.getuid() and stat.S_IMODE(database.stat().st_mode) == 0o600
-print('PASS: installed OpenCode readonly config, persistent cli.json/state and native v2 source inspection')
+print('PASS: installed OpenCode readonly config, reset cli.json with protected backup, persistent state and native v2 source inspection')

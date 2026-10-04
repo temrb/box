@@ -33,6 +33,9 @@ box_project_identity box-o-v2
 
 config_raw=${BOX_O_CONFIG:-$HOME/.config/$(box_tool_field opencode config_dir)/$(box_tool_field opencode config_file)}
 config=$(box_resolve_config "$config_raw")
+# shellcheck source=lib/config-file.sh
+source "$script_dir/lib/config-file.sh"
+box_directory_configs opencode
 
 # Pinned OpenCode release; the single source rewritten by the update procedure.
 # BOX_O_VERSION_FILE overrides the default only for testing; the

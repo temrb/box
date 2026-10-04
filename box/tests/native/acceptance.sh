@@ -143,7 +143,7 @@ check_opencode() {
     env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
       -c 'python3 - saved-isolation' <"$bundle_dir/harnesses/opencode/native-probe.py" || return 1
   ) || return 1
-  printf 'PASS: opencode/%s preferences persist and isolate physical projects\n' "$flag"
+  printf 'PASS: opencode/%s preferences reset while state and approvals persist and isolate physical projects\n' "$flag"
 }
 check_opencode_pin_recovery() {
   local dest src before

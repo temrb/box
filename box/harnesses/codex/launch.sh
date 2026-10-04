@@ -20,9 +20,10 @@ tool_network=$(box_tool_field codex network)
 box_project_identity "$tool_network"
 config_raw=${BOX_C_CONFIG:-$HOME/.config/$(box_tool_field codex config_dir)/$(box_tool_field codex config_file)}
 config=$(box_resolve_config "$config_raw")
-# Format prerequisites apply only to this TOML consumer.
 # shellcheck source=lib/config-file.sh
 source "$script_dir/lib/config-file.sh"
+box_directory_configs codex
+# Format prerequisites apply only to this TOML consumer.
 box_config_validate "$config" toml
 version_file=${BOX_C_VERSION_FILE:-$HOME/.config/$(box_tool_field codex config_dir)/$(box_tool_field codex version_file)}
 # shellcheck disable=SC2046 # ordered registry keys intentionally split
@@ -58,7 +59,24 @@ if (( ! dry_run )); then
   if ((api_login)); then [[ -n "${OPENAI_API_KEY:-}" ]] || die 'Explicit API-key login requires OPENAI_API_KEY in providers.env.'; fi
   box_prepare_directory "$state_root" 700 >/dev/null
   box_prepare_directory "$codex_home" 700 >/dev/null
-  box_seed_writable_config "$config" "$codex_home/config.toml" 600
+  [[ ! -L "$codex_home/.box-launch.lock" ]] || die 'Redirected Codex lock.'
+  exec {preferences_lock}>"$codex_home/.box-launch.lock"
+  flock -x "$preferences_lock" || die 'Cannot lock Codex home.'
+  box_backup_preferences "$codex_home/config.toml"
+  if [[ -f "$codex_home/config.toml" ]]; then
+    # Preserve native trust records only; all preferences inherit live defaults.
+    trust_config=$(python3 - "$codex_home/config.toml" <<'TRUST'
+import json, sys, tomllib
+with open(sys.argv[1], 'rb') as f:
+    data = tomllib.load(f)
+for path, record in data.get('projects', {}).items():
+    if isinstance(record, dict) and 'trust_level' in record:
+        print('[projects.' + json.dumps(path, ensure_ascii=False) + ']')
+        print('trust_level = ' + json.dumps(record['trust_level'], ensure_ascii=False))
+TRUST
+    ) || die 'Cannot preserve Codex trust records.'
+    box_write_if_changed "$codex_home/config.toml" "$trust_config" 'Codex trust records'
+  fi
 fi
 box_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli"
 # shellcheck disable=SC2046 # registry host list intentionally split
@@ -70,6 +88,7 @@ box_base_args "$tool_network"
 args+=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=bind,src=$codex_home,dst=/home/box/.codex,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=volume,src=$volume,dst=/persist"
+  --mount "type=bind,src=$config,dst=/etc/codex/config.toml,readonly"
   --env CODEX_HOME=/home/box/.codex
   --env "GIT_AUTHOR_NAME=$identity_name" --env "GIT_COMMITTER_NAME=$identity_name"
   --env "GIT_AUTHOR_EMAIL=$identity_email" --env "GIT_COMMITTER_EMAIL=$identity_email"

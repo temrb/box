@@ -34,12 +34,14 @@ readonly box_tool_ids='muse opencode codex'
 # launchers probe DNS via probe_hosts (lib/launcher.sh); verify harnesses prove
 # egress against probe_url/probe_hosts. No per-tool literals elsewhere.
 # shellcheck disable=SC2034 # consumed by tests/bats/tools.bats completeness.
-readonly box_tool_fields='launcher image_prefix network config_dir config_file version_file dockerfile_target version_format probe_hosts forward_keys pin_keys label_pins display git_prefix package version_source launch_adapter install_adapter update_adapter validate_adapter artifacts states probe_url'
+readonly box_tool_fields='launcher image_prefix network config_dir config_file version_file dockerfile_target version_format probe_hosts forward_keys pin_keys label_pins display git_prefix package version_source launch_adapter install_adapter update_adapter validate_adapter artifacts states probe_url directory_configs directory_parser'
 
 # The table: composite "<id>,<field>" keys. -g: helpers.bash sources lib
 # files inside setup(), where a plain declare would scope this local.
 # shellcheck disable=SC2034 # read via box_tool_field.
 declare -gA _BOX_TOOL_REGISTRY=(
+  [muse,directory_parser]='json'
+  [muse,directory_configs]='.muse/settings.json'
   [muse,launcher]='box-m'
   [muse,image_prefix]='box-m'
   [muse,network]='box-m'
@@ -54,6 +56,8 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [muse,label_pins]='MUSE_VERSION:org.meta.muse.box.version MUSE_SHA256_AMD64:org.meta.muse.box.sha256-amd64 MUSE_SHA256_ARM64:org.meta.muse.box.sha256-arm64'
   [muse,display]='Muse'
   [muse,git_prefix]='BOX_M'
+  [opencode,directory_parser]='native'
+  [opencode,directory_configs]='opencode.json:opencode.jsonc .opencode/opencode.json:.opencode/opencode.jsonc'
   [opencode,launcher]='box-o'
   [opencode,image_prefix]='box-o'
   [opencode,network]='box-o'
@@ -95,6 +99,8 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [codex,artifacts]='config policy'
   [codex,states]='home volume'
   [codex,probe_url]='https://auth.openai.com'
+  [codex,directory_parser]='toml'
+  [codex,directory_configs]='.codex/config.toml'
   [codex,launcher]='box-c'
   [codex,image_prefix]='box-c'
   [codex,network]='box-c'
@@ -171,9 +177,9 @@ _box_artifact_record() {
   done
   (($# == 0)) || die 'Invalid artifact record.'
 }
-_box_artifact_record muse settings harnesses/muse/config/settings.json json template settings.json /home/box/.config/muse/settings.json refresh-seed-legacy-empty 644 user 'setup launch validate verify'
+_box_artifact_record muse settings harnesses/muse/config/settings.json json live-config settings.json /home/box/.config/muse/settings.json refresh-live 644 user 'setup launch validate verify'
 _box_artifact_record opencode config harnesses/opencode/config/opencode.json json live-config opencode.json /persist/config/opencode/opencode.json refresh-live 644 user 'setup launch validate verify'
-_box_artifact_record codex config harnesses/codex/config/config.toml toml template config.toml /home/box/.codex/config.toml refresh-seed-if-absent 600 user 'setup launch validate verify'
+_box_artifact_record codex config harnesses/codex/config/config.toml toml live-config config.toml /etc/codex/config.toml refresh-live 600 user 'setup launch validate verify'
 _box_artifact_record codex policy harnesses/codex/policy/requirements.toml toml managed-image '' /etc/codex/requirements.toml managed-image 644 root 'build validate verify'
 unset -f _box_artifact_record
 
@@ -227,6 +233,16 @@ box_validate_registry() {
     [[ "$id" =~ ^[a-z][a-z0-9-]*$ && -z "${seen[id,$id]+set}" ]] || die "Invalid/duplicate harness id: $id"
     seen[id,$id]=1
     for f in $box_tool_fields; do box_tool_field "$id" "$f" >/dev/null; done
+    local directory_path directory_group
+    case "$(box_tool_field "$id" directory_parser)" in json|toml|native) ;; *) die "Invalid directory parser: $id";; esac
+    [[ -n "$(box_tool_field "$id" directory_configs)" ]] || die "Missing directory config paths: $id"
+    for directory_group in $(box_tool_field "$id" directory_configs); do
+      local -a directory_group_paths=()
+      IFS=: read -r -a directory_group_paths <<< "$directory_group"
+      for directory_path in "${directory_group_paths[@]}"; do
+      [[ "$directory_path" != /* && "$directory_path" != *..* && "$directory_path" =~ ^[A-Za-z0-9_./-]+$ ]] || die "Invalid directory config path: $id"
+      done
+    done
     for f in launcher config_dir version_file; do
       value=$(box_tool_field "$id" "$f")
       [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && -z "${seen[$f,$value]+set}" ]] || die "Invalid/duplicate $f destination: $value"

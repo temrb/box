@@ -12,8 +12,8 @@ Usage: $invoked [--dry-run] [--shell [bash arguments...]] [Muse arguments...]
        every tool run probes the same way — use --runsc to force gVisor)
 Set BOX_M_ALLOW_FALLBACK=0 to disable the fallback entirely.
 Set BOX_M_INNER_FLAG=--new-flag (or empty) if upstream renames --disable-sandbox.
-Muse settings + auth (settings.json, auth.json, .trust.json) persist
-globally in ~/.config/box-m/muse-config/
+Muse auth and trust (auth.json, .trust.json) persist
+globally in ~/.config/box-m/muse-config/; settings refresh each launch
 (override via BOX_M_PERSIST_DIR).
 EOF
   box_usage_common_flags
@@ -39,6 +39,9 @@ box_project_identity "$tool_network"
 
 config_raw=${BOX_M_CONFIG:-$HOME/.config/$(box_tool_field muse config_dir)/$(box_tool_field muse config_file)}
 config=$(box_resolve_config "$config_raw")
+# shellcheck source=lib/config-file.sh
+source "$script_dir/lib/config-file.sh"
+box_directory_configs muse
 
 # Pinned Muse Code release; the single source rewritten by the update procedure.
 # BOX_M_VERSION_FILE overrides the default only for testing; the
@@ -59,31 +62,15 @@ box_git_identity BOX_M
 # helper cannot run here. Same single source the label assert compares.
 image=${BOX_M_IMAGE:-$(box_image_tag_for_version muse "$file_version" "$host_uid" "$host_gid")}
 
-# Persistent global Muse config (settings.json, auth.json, .trust.json,
-# sibling state). Host dir is global across projects: a Meta browser login
-# is user-level, not per-project (the per-project volume at /persist cannot
-# hold it). Single writable dir bind below (no file overlay): in-container
-# /models changes persist here across runs.
-# Override for testing via BOX_M_PERSIST_DIR (must stay outside project).
-# Config dir from the registry (same lookup as the config/version defaults
-# above); only the `muse-config` persist subdir is muse-specific by design.
+# Global auth and trust persist; preferences use a private launch snapshot.
 muse_persist_raw=${BOX_M_PERSIST_DIR:-$HOME/.config/$(box_tool_field muse config_dir)/muse-config}
 muse_persist_dir=$(box_plan_directory "$muse_persist_raw")
-# First-run seed: copy the host seed file in only when the persistent
-# settings file is missing (an empty dest holds no state, so the helper
-# reseeds that too — repairing the empty file left by the retired
-# file-inside-dir bind quirk). Seeding never overwrites existing state; the
-# enforce step below then reverts drift in the four safety-critical keys
-# (approval_mode, approval_judge, telemetry.enabled, api.base_url) while
-# preserving model, reasoning_effort, and unknown keys.
 box_plan_docker_cli "$HOME/.config/$(box_tool_field muse config_dir)/docker-cli" >/dev/null
 box_assert_native_cache "$muse_persist_dir/auth.json"
 if [[ -e "$muse_persist_dir/settings.json" || -L "$muse_persist_dir/settings.json" ]]; then
   [[ ! -L "$muse_persist_dir/settings.json" && -f "$muse_persist_dir/settings.json" ]] || die 'Invalid live Muse settings.'
   box_assert_owner_mode "$muse_persist_dir/settings.json" 'Live Muse settings' nowrite
-  if [[ -s "$muse_persist_dir/settings.json" ]]; then
-    jq -e 'type == "object"' "$muse_persist_dir/settings.json" >/dev/null || die 'Invalid live Muse settings.'
-  fi
+
 fi
 jq -e 'has("approval_mode") and has("approval_judge") and (.telemetry | has("enabled")) and (.api | has("base_url"))' "$config" >/dev/null || die 'Muse seed lacks enforced safety keys.'
 # Validate credentials and CLI destinations before preparing native state.
@@ -93,15 +80,27 @@ box_load_credentials "$credentials" "$dry_run" $BOX_CRED_KEYS
 box_docker_cli "$HOME/.config/$(box_tool_field muse config_dir)/docker-cli"
 if (( ! dry_run )); then
 box_prepare_directory "$muse_persist_dir" 700 >/dev/null
-box_muse_seed_config "$config" "$muse_persist_dir/settings.json"
-box_enforce_safe_settings "$config" "$muse_persist_dir/settings.json"
-# One-way host→persist TUI theme sync: fill the theme keys missing from the
-# persisted file from the host-native Muse settings (when present). Existing
-# sandbox values always win — in-sandbox /theme choices persist globally and
-# are never clobbered, and later host changes do not propagate (use
-# in-sandbox /theme to change the sandbox theme). Best-effort: a
-# missing/unusable host file never blocks launch.
-box_sync_host_tui_theme "${XDG_CONFIG_HOME:-$HOME/.config}/muse/settings.json" "$muse_persist_dir/settings.json"
+[[ ! -L "$muse_persist_dir/.box-migration.lock" ]] || die 'Redirected Muse migration lock.'
+exec {migration_lock}>"$muse_persist_dir/.box-migration.lock"
+flock -x "$migration_lock"
+box_backup_preferences "$muse_persist_dir/settings.json"
+# Create the overlay target as the user so Docker never creates a root-owned
+# empty file inside the persistent bind. This stores no default preferences.
+if [[ ! -e "$muse_persist_dir/settings.json" ]]; then
+  (umask 077; set -o noclobber; : > "$muse_persist_dir/settings.json") || die 'Cannot create settings mount target.'
+fi
+flock -u "$migration_lock"
+exec {migration_lock}>&-
+# Keep snapshots outside every writable container bind, including the shared home.
+settings_snapshot_dir=$(TMPDIR=/tmp box_mktemp_dir box-m-settings) || die 'Cannot create settings snapshot directory.'
+settings_snapshot=$settings_snapshot_dir/settings.json
+trap 'rm -f -- "$settings_snapshot"; rmdir -- "$settings_snapshot_dir"' EXIT
+(umask 077; : > "$settings_snapshot") || die 'Cannot create settings snapshot.'
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+box_config_merge_json "$config" "${directory_configs[@]}" > "$settings_snapshot" || die 'Cannot merge Muse settings.'
+box_enforce_safe_settings "$config" "$settings_snapshot"
 
 fi
 
@@ -134,10 +133,9 @@ args=(run --rm --init --interactive --pull=never --name "$container"
 # canonical order (previously copied per launcher and drifted).
 box_base_args "$tool_network"
 args+=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bind-propagation=rprivate"
-  # Single writable persistent global config dir (no file overlay): muse
-  # owns settings.json here (seeded above), so in-container model changes
-  # persist globally across runs.
+  # Writable auth/trust parent with a read-only preference overlay.
   --mount "type=bind,src=$muse_persist_dir,dst=/home/box/.config/muse,bind-recursive=disabled,bind-propagation=rprivate"
+  --mount "type=bind,src=${settings_snapshot:-$config},dst=/home/box/.config/muse/settings.json,readonly"
   --mount "type=volume,src=$volume,dst=/persist"
   --env "GIT_AUTHOR_NAME=$identity_name" --env "GIT_COMMITTER_NAME=$identity_name"
   --env "GIT_AUTHOR_EMAIL=$identity_email" --env "GIT_COMMITTER_EMAIL=$identity_email"

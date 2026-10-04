@@ -235,26 +235,28 @@ box_preflight_symlinks() {
 # Git step: prevent external Git metadata escapes from linked worktrees.
 # Canonicalize both dirs with realpath -m so ../ and symlink escapes cannot
 # evade the under-$project check (rev-parse may return relative paths).
-# NOTE: this inspects .git in the current directory; the launchers always
-# run with CWD == $project, so that is the mounted directory. A
-# subdirectory run mounts only that subdirectory (see docs/operations.md §9).
+# Inspect the mounted root, including nested repositories. An explicit root
+# can contain a linked worktree even when the root itself has no .git.
 # Unset GIT_* overrides first: an exported GIT_DIR/WORK_TREE/COMMON_DIR/
 # CEILING/INDEX_FILE would otherwise redirect rev-parse outside the project
 # and poison the worktree check.
 # Reads global: project. No arguments.
-box_preflight_git() {
-  local gitdir common_raw common
-  if [[ -e .git || -L .git ]]; then
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CEILING_DIRECTORIES GIT_INDEX_FILE
-    gitdir=$(git -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
+box_preflight_git() (
+  local gitdir common_raw common git_var metadata repository
+  set -o pipefail
+  find "$project" -xdev -name .git -print0 -prune |
+  while IFS= read -r -d '' metadata; do
+    repository=${metadata%/.git}
+    while IFS= read -r git_var; do unset "$git_var"; done < <(compgen -v GIT_)
+    gitdir=$(git -C "$repository" -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
     gitdir=$(box_realpath -m -- "$gitdir") || die 'Cannot canonicalize Git dir.'
-    common_raw=$(git -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
-    case "$common_raw" in /*) common=$(box_realpath -m -- "$common_raw") ;; *) common=$(box_realpath -m -- "$project/$common_raw") ;; esac \
+    common_raw=$(git -C "$repository" -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
+    case "$common_raw" in /*) common=$(box_realpath -m -- "$common_raw") ;; *) common=$(box_realpath -m -- "$repository/$common_raw") ;; esac \
       || die 'Cannot canonicalize Git common dir.'
     case "$gitdir/" in "$project/"*) ;; *) die 'Use a standalone clone: this worktree has external Git metadata.';; esac
     case "$common/" in "$project/"*) ;; *) die 'Use a standalone clone: this worktree shares external Git metadata.';; esac
-  fi
-}
+  done || die 'Cannot inspect project Git metadata.'
+)
 
 # Closed denylist + $HOME/credential-dir + IPC + symlink + git-worktree preflight.
 # Thin ordering wrapper over the per-concern steps above (each step is also

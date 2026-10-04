@@ -156,6 +156,7 @@ PY
 }
 
 @test "opencode launcher persists config siblings in an isolated v2 volume" {
+  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
   config="$TEST_HOME/opencode.json"
   cp "$BUNDLE_DIR/harnesses/opencode/config/opencode.json" "$config"
   pins="$TEST_HOME/version.env"

@@ -20,13 +20,13 @@ box_config_require_parser() {
 box_config_validate() {
   local file=${1:-}
   box_config_require_parser "$file"
-  [[ -f "$file" && -r "$file" ]] || die 'Missing readable configuration file.'
+  [[ -f "$file" && -r "$file" ]] || die "Missing readable configuration file: $file"
   case "$file" in
     *.json)
       jq -e -s 'length == 1 and (.[0] | type == "object")' -- "$file" >/dev/null 2>&1 \
-        || die 'Invalid JSON configuration (expected one object).' ;;
+        || die "Invalid JSON configuration (expected one object): $file" ;;
     *.toml)
-      python3 - "$file" <<'PY' || die 'Invalid TOML configuration.'
+      python3 - "$file" <<'PY' || die "Invalid TOML configuration: $file"
 import sys, tomllib
 try:
     with open(sys.argv[1], "rb") as source:
@@ -77,4 +77,19 @@ except (OSError, ValueError, KeyError, TypeError):
 PY
       ;;
   esac
+}
+
+# Merge strict JSON preference layers. Empty objects contribute no overrides.
+box_config_merge_json() {
+  local file
+  for file in "$@"; do box_config_validate "$file"; done
+  jq -s '
+    def merge($base; $override):
+      if ($override | type) == "object" then
+        if ($override | length) == 0 then $base
+        else reduce ($override | keys_unsorted[]) as $key
+          (if ($base | type) == "object" then $base else {} end;
+           .[$key] = merge(.[$key]; $override[$key])) end
+      else $override end;
+    reduce .[] as $layer ({}; merge(.; $layer))' -- "$@"
 }

@@ -88,10 +88,11 @@ current three-pin file before rerunning setup. Setup rejects incompatible instal
 
 ### 9. Daily usage and persistence
 
-Run from one physical project directory, not the entire home or a parent
-containing state/config/credentials. That directory alone is `/workspace`; a
-subdirectory launch mounts only that subdirectory. External Git worktrees fail
-preflight. Symlink aliases of a project use the same physical-path hash; moves
+Run from a physical project directory, not the entire home or a parent
+containing state/config/credentials. The nearest Git root (or explicit
+`--project-root`) mounts at `/workspace`; the client starts in the launch
+subdirectory. External Git worktrees fail preflight. Symlink aliases of a
+launch directory use the same physical-path hash; moves
 and UID/GID changes create new volume/home identities.
 
 ```bash
@@ -251,3 +252,25 @@ Codex project homes/volumes, template backups, and custom roots. A code-only
 uninstall retains those stores; full removal deletes their auth/preferences/
 transcripts and cannot be described as a volume-only reset. Leave source and
 repository developer configuration separate from installed/native state.
+
+## Live defaults and subdirectory launches
+
+Run from any repository subdirectory. The nearest Git root is mounted and the
+client starts in the requested subdirectory. For a non-Git tree use
+`box-m --project-root /path/to/tree` (also supported by `box-o` and `box-c`);
+the root must contain the physical launch directory. Put launcher flags before
+`--shell`. State remains keyed to the launch directory.
+
+Edit installed defaults, or refresh them with setup after changing checkout
+templates. Every subsequent launch uses the current defaults, including existing
+projects. `BOX_M_CONFIG`, `BOX_O_CONFIG`, and `BOX_C_CONFIG` replace this layer.
+Put partial directory overrides in `.muse/settings.json`, `.codex/config.toml`,
+or native `opencode.json(c)` / `.opencode/opencode.json(c)` files. Inheritance
+begins at the mounted root; siblings do not contribute. Codex project settings
+require native trust. Muse settings saves against the read-only snapshot are
+unsupported. UI preferences do not carry forward to later launches.
+
+Legacy preference backups use `.box-legacy` and mode 600. Do not remove homes
+or volumes to refresh preferences: these also contain auth, trust and sessions.
+Dry-run reports root, container working directory, selected defaults and
+recognized directory configuration paths without mutation.

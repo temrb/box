@@ -60,6 +60,7 @@ load helpers
 
 @test "project-identity derives stable volume and container names" {
   cd -- "$TEST_PROJ"
+  project_root_arg=$TEST_PROJ
   box_project_identity box-m
   [[ "$volume" == box-m-u"${host_uid}"-g"${host_gid}"-* ]]
   [[ "$container" == box-m-u"${host_uid}"-* ]]

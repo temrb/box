@@ -137,7 +137,7 @@ box_base_args() {
     --tmpfs /var/tmp:rw,nosuid,nodev
     --tmpfs "/home/box/.cache:rw,nosuid,nodev,uid=$host_uid,gid=$host_gid,mode=700"
     --memory="$BOX_CONTAINER_MEMORY" --memory-swap="$BOX_CONTAINER_MEMORY" --cpus="$BOX_CONTAINER_CPUS" --pids-limit="$BOX_CONTAINER_PIDS"
-    --network="$network" --workdir=/workspace)
+    --network="$network" --workdir="${working_directory:-/workspace}")
 }
 
 # Forward keys into the container by NAME only (never =value, so dry-run
@@ -192,7 +192,7 @@ box_maybe_tty() {
 # Usage: box_usage_common_flags
 box_usage_common_flags() {
   cat <<'EOF'
-Run from the project root. --dry-run prints arguments without contacting Docker.
+Run from any project subdirectory. --project-root PATH selects a non-Git root. --dry-run prints arguments without contacting Docker.
 --docker-fallback explicitly chooses hardened runc; --runsc explicitly chooses
 gVisor (no probe). With neither flag, tool runs probe container DNS under
 runsc first and auto-select hardened runc only when the probe fails (NOTICE

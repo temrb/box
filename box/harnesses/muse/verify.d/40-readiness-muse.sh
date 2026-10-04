@@ -47,6 +47,7 @@ echo 'Muse Code settings.json validation: PASS'
 _muse_probe=$(mktemp /home/box/.config/muse/.box-write-test.XXXXXX) || { echo 'FAIL: cannot write to /home/box/.config/muse (needs writable persistent bind)' >&2; exit 1; }
 rm -f -- "$_muse_probe"
 unset _muse_probe
-touch /home/box/.config/muse/settings.json 2>/dev/null || { echo 'FAIL: settings.json is not writable (in-container model changes must persist)' >&2; exit 1; }
-echo 'Muse Code config-dir writability (persistent bind) + settings.json writable: PASS'
-
+if touch /home/box/.config/muse/settings.json 2>/dev/null; then
+  echo 'FAIL: settings snapshot must be read-only' >&2; exit 1
+fi
+echo 'Muse persistent auth/trust parent writable; settings snapshot read-only: PASS'

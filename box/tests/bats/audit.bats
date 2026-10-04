@@ -11,6 +11,7 @@ codex_fixture() {
   : >"$BOX_C_ENV_FILE"
   chmod 600 "$BOX_C_ENV_FILE"
   script_dir=$BUNDLE_DIR
+  git -C "$TEST_PROJ" init -q
   cd "$TEST_PROJ"
 }
 
@@ -227,6 +228,7 @@ codex_fixture() {
 }
 
 @test "Codex dry-run is read-only and isolates physical projects under an overridden root" {
+  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
   codex_fixture
   run "$BUNDLE_DIR/box-c" --dry-run login
   [ "$status" -eq 0 ]
@@ -236,6 +238,7 @@ codex_fixture() {
   [ ! -e "$BOX_C_STATE_ROOT" ]
   [ ! -e "$HOME/.config" ]
   mkdir "$PROJ_ROOT/second"
+  git -C "$PROJ_ROOT/second" init -q
   cd "$PROJ_ROOT/second"
   run "$BUNDLE_DIR/box-c" --dry-run --version
   [ "$status" -eq 0 ]
@@ -244,6 +247,7 @@ codex_fixture() {
 }
 
 @test "Codex protects both root spellings and rejects conflicts before mutation" {
+  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
   codex_fixture
   export BOX_C_STATE_DIR="$TEST_TMP/legacy-root"
   run "$BUNDLE_DIR/box-c" --dry-run --version
@@ -260,21 +264,34 @@ codex_fixture() {
   [ ! -e "$BOX_C_STATE_DIR" ]
 }
 
-@test "Codex preparation preserves preferences and empty native config across restarts" {
+@test "Codex preparation resets preferences and preserves trust and state across restarts" {
   codex_fixture
-  box_docker_exec() { :; }
+  box_docker_cli() { docker_cmd=(true); }
+  box_docker_exec() { exec {preferences_lock}>&-; }
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
   native="$codex_home/config.toml"
-  printf 'model = "account-preference"\ncustom_preference = "keep"\n' >"$native"
-  before=$(sha256sum "$native")
+  printf 'model = "account-preference"\n[projects."/workspace/🌱"]\ntrust_level = "trusted"\n' >"$native"
+  chmod 600 "$native"
+  printf 'session fixture' >"$codex_home/history.jsonl"
+  printf '{"synthetic":"auth"}' >"$codex_home/auth.json"
+  chmod 600 "$codex_home/auth.json"
+  sed -i 's/^model = .*/model = "refreshed-default"/' "$BOX_C_CONFIG"
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
-  [ "$(sha256sum "$native")" = "$before" ]
+  [[ " ${args[*]} " == *"src=$BOX_C_CONFIG,dst=/etc/codex/config.toml,readonly"* ]]
+  [ "$(box_config_get "$config" .model)" = refreshed-default ]
+  [[ "$(cat "$native")" == *'trust_level = "trusted"'* ]]
+  [[ "$(cat "$native")" != *account-preference* ]]
+  [[ "$(cat "$native.box-legacy")" == *account-preference* ]]
+  [ "$(stat -c %a "$native.box-legacy")" = 600 ]
+  [ "$(cat "$codex_home/history.jsonl")" = 'session fixture' ]
+  [ "$(cat "$codex_home/auth.json")" = '{"synthetic":"auth"}' ]
   : >"$native"
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
   [ ! -s "$native" ]
 }
 
 @test "installed launchers work without bundle assets or the checkout" {
+  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
   codex_fixture
   unset BOX_C_CONFIG BOX_C_VERSION_FILE
   mkdir -p "$TEST_TMP/installed/lib" "$TEST_TMP/installed/harnesses"

@@ -73,13 +73,15 @@ update, run `update-check` → `update` → `gen-verify.sh`/`gen-pins.sh` →
 continued use of old pins after a mandate is out of scope. Automatic update
 checks are disabled for reproducible builds only: `MUSE_NO_AUTO_UPDATE=1`,
 `OPENCODE_DISABLE_AUTOUPDATE=1` plus `"update": "disable"`, and
-`check_for_update_on_startup = false` (Codex seed plus image policy).
+`check_for_update_on_startup = false` (Codex defaults plus image policy).
 
 Template refresh: edit the package config, run generators/checks, then rerun
 setup. Setup refreshes installed templates with a single `.bak` backup.
-Existing Muse/Codex live preferences and auth are retained. Their guides describe
-explicit adoption of a refreshed seed. OpenCode's installed config is live and
-is refreshed with backup; migrate custom preferences deliberately after review.
+All harnesses read refreshed defaults on the next launch, including existing
+projects. Auth, trust, sessions and databases remain persistent. Legacy preference
+files receive protected `.box-legacy` backups; keep durable preferences in installed
+defaults or recognized directory configs. UI saves do not take precedence on later
+launches. Migrate custom preferences from backups deliberately after review.
 Managed-policy changes require rebuilding the image; refreshing a host template
 alone does not change image-owned requirements (Codex; OpenCode v2 ships no
 image policy).

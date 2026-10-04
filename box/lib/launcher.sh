@@ -28,12 +28,14 @@ box_parse_launcher_args() {
   explicit_runsc=0
   dry_run=0
   shell_mode=0
+  project_root_arg=''
   launcher_rest=()
   while (($#)); do
     case "$1" in
       --docker-fallback) runtime_args=(--runtime=runc); fallback_requested=1; explicit_runsc=0; shift ;;
       --runsc) runtime_args=(--runtime=runsc); fallback_requested=0; explicit_runsc=1; shift ;;
       --dry-run) dry_run=1; shift ;;
+      --project-root) (($# >= 2)) || die "--project-root requires PATH."; project_root_arg=$2; shift 2 ;;
       --shell) shell_mode=1; shift; break ;;
       --help|-h) usage; exit 0 ;;
       --) shift; break ;;
@@ -46,7 +48,7 @@ box_parse_launcher_args() {
     # passthrough). Deeper positions are left alone: shell/tool commands may
     # legitimately contain such strings (e.g. `opencode --dry-run`).
     case "${1:-}" in
-      --docker-fallback|--runsc|--dry-run)
+      --docker-fallback|--runsc|--dry-run|--project-root)
         die "Place launcher flags before --shell: '$1' after --shell would be passed to the shell." ;;
     esac
   fi
@@ -75,12 +77,27 @@ box_check_fallback() {
 box_project_identity() {
   local prefix=${1:-} hash_full box_now
   [[ -n "$prefix" ]] || die 'Internal error: missing tool prefix.'
-  project=$(pwd -P) || die 'Cannot resolve project directory.'
+  launch_directory=$(pwd -P) || die 'Cannot resolve launch directory.'
+  state_identity=$launch_directory
+  # Sanitize all Git environment controls before repository discovery.
+  workspace_root=$launch_directory
+  if [[ -n "${project_root_arg:-}" ]]; then
+    workspace_root=$(box_realpath -e -- "$project_root_arg") || die 'Invalid --project-root.'
+    [[ -d "$workspace_root" ]] || die '--project-root must be a directory.'
+  elif command -v git >/dev/null; then
+    workspace_root=$(box_sanitized_git -c safe.directory='*' rev-parse --show-toplevel 2>/dev/null) || workspace_root=$launch_directory
+    workspace_root=$(box_realpath -e -- "$workspace_root") || die 'Cannot resolve workspace root.'
+  fi
+  case "$launch_directory/" in "$workspace_root/"*) ;; *) die '--project-root must be an ancestor of the launch directory.';; esac
+  project=$workspace_root
+  working_directory=/workspace
+  [[ "$launch_directory" == "$workspace_root" ]] || working_directory+="/${launch_directory#"$workspace_root/"}"
+
   host_uid=$(id -u) || die 'Cannot determine UID.'
   host_gid=$(id -g) || die 'Cannot determine GID.'
-  box_preflight_project
+  (cd -- "$project" && box_preflight_project)
   # Split off sha256sum's "  -" trailer instead of slicing blindly.
-  hash_full=$(printf '%s' "$project" | sha256sum) \
+  hash_full=$(printf '%s' "$state_identity" | sha256sum) \
     || die 'Cannot hash project path.'
   hash_full=${hash_full%% *}
   [[ "$hash_full" =~ ^[0-9a-f]{64}$ ]] || die 'Cannot hash project path.'
@@ -331,3 +348,57 @@ box_maybe_auto_runtime() {
   ((dry_run == 0)) && ((fallback_requested == 0)) && ((shell_mode == 0)) && ((explicit_runsc == 0)) || return 0
   box_auto_runtime "$@"
 }
+
+# Registry paths are ordered in native precedence order; do not merge native configs.
+box_directory_configs() {
+  local id=$1 style dir file resolved path
+  local -a style_paths=()
+  directory_configs=()
+  for style in $(box_tool_field "$id" directory_configs); do
+    IFS=: read -r -a style_paths <<< "$style"
+    dir=$workspace_root
+    while :; do
+      for path in "${style_paths[@]}"; do
+        file=$dir/$path
+        if [[ -e "$file" || -L "$file" ]]; then
+          resolved=$(box_realpath -e -- "$file") || die "Cannot resolve directory configuration: $file"
+          case "$resolved" in "$workspace_root/"*) ;; *) die "Directory configuration escapes workspace: $file";; esac
+          [[ -f "$resolved" && -r "$resolved" ]] || die "Unreadable directory configuration: $file"
+          if [[ "$(box_tool_field "$id" directory_parser)" != native ]]; then
+            (box_config_validate "$file") || die "Invalid directory configuration: $file"
+          fi
+          directory_configs+=("$file")
+        fi
+      done
+      [[ "$dir" == "$launch_directory" ]] && break
+      local rest=${launch_directory#"$dir/"}
+      dir+=/${rest%%/*}
+    done
+  done
+  if ((dry_run)); then
+    printf 'Workspace root: %s\nWorking directory: %s\nDefault source: %s\n' "$workspace_root" "$working_directory" "$config"
+    printf 'Directory configuration precedence: %s\n' "$(box_tool_field "$id" directory_configs)"
+    if ((${#directory_configs[@]})); then printf 'Directory configuration: %s\n' "${directory_configs[@]}"; fi
+  fi
+}
+
+box_backup_preferences() {
+  local file=$1
+  [[ -e "$file" ]] || return 0
+  [[ ! -L "$file" && -f "$file" ]] || die "Unsafe preference file: $file"
+  box_assert_owner_mode "$file" 'Legacy preferences' nowrite
+  [[ ! -L "$file.box-legacy" ]] || die "Redirected preference backup: $file.box-legacy"
+  if [[ ! -e "$file.box-legacy" ]]; then
+    (umask 077; cp -p -- "$file" "$file.box-legacy") || die "Cannot back up preferences: $file"
+    chmod 600 -- "$file.box-legacy"
+  else
+    [[ -f "$file.box-legacy" ]] || die "Invalid preference backup: $file.box-legacy"
+    box_assert_owner_mode "$file.box-legacy" 'Preference backup' creds
+  fi
+}
+
+box_sanitized_git() (
+  local git_var
+  while IFS= read -r git_var; do unset "$git_var"; done < <(compgen -v GIT_)
+  git "$@"
+)

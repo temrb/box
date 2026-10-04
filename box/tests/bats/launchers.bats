@@ -480,3 +480,13 @@ _muse_login_stub() {
   [[ "$output" == *"login failed: boom"* ]]
   [[ "$output" != *"no device URL was detected"* ]]
 }
+
+@test "box-m-login forwards an explicit workspace root" {
+  _muse_login_stub
+  printf '#!/bin/bash\nprintf "%%s\\n" "$@"\n' >"$stub/box-m"
+  chmod +x "$stub/box-m"
+  cd "$TEST_PROJ"
+  run "$stub/box-m-login" --project-root "$TEST_PROJ"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *--project-root*"$TEST_PROJ"*login* ]]
+}

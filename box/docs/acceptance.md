@@ -93,7 +93,7 @@ model operation or resumed sessions. Those remain separate acceptance gates.
 | F04 | Complete Codex 0.160.0 package, both verified digests/layouts, native policy probes and two-store isolation. Authenticated operation and ARM64 remain unmet. |
 | F05 | Explicit artifact roles, source/install/runtime paths, owners/modes, lifecycles and required consumers in `lib/tools.sh`; invalid format/mode/lifecycle, missing/unknown consumers, duplicate names, and orphan/colliding records fail. |
 | F06 | Muse merge/theme/login/bypass and native install/update/validation logic live in harness packages; shared libraries retain generic orchestration. |
-| F07 | Refresh-with-backup, preserve-installed-pins, atomic seed-if-absent and the single managed-image lifecycle (Codex requirements only); empty Codex TOML and preferences survive; concurrent seeding tested. |
+| F07 | Refresh-with-backup, preserve-installed-pins and the single managed-image lifecycle (Codex requirements only). Live defaults replace launch seeding; protected legacy backups retain preferences, while Codex home trust records and native state survive. See migration evidence below. |
 | F08 | Native cache owner/type/mode/writability and parent-link checks fail without contents or silent repair; unsafe-cache negatives include direct symlink/dir/FIFO cases. Real cache/account validity remains untested. |
 | F09 | Separate source and installed leaf names; recursive package installation/discovery/generation; installed operation without checkout and obsolete-code cleanup tested. |
 | F10 | Format parsing, harness structural validators, generated expected values, per-stage pin consumption and bounded native inspection (readiness spawns wrapped in `timeout 30`); semantic negatives including Muse/OpenCode validator drift and stage-pin mutants. Missing native evidence fails acceptance. |
@@ -114,3 +114,33 @@ architecture, explicit runtime, auth method and observed outcome. Existing
 `harnesses/opencode/validation/REPORT.txt` remains historical;
 `resolved-config.json`/`config-stderr.txt` are current redacted source
 inspection, not enforcement/auth evidence.
+
+## Live-default migration evidence (2026-10-04)
+
+The launch architecture now separates physical launch state identity, mounted
+workspace root and container working directory. Defaults are live on every launch;
+Muse snapshots merge strict directory data, Codex mounts system defaults and
+retains home trust records, and OpenCode resets global UI files under a volume
+lock while retaining SQLite state. Historical evidence above predates this
+migration; it does not establish acceptance of the changed lifecycle.
+
+Focused Bats coverage checks sanitized Git discovery, ancestor roots, recognized
+config containment, nested external Git metadata rejection, layered nested
+preferences, empty-object behavior, default
+refresh and override removal, Codex protected legacy backups and trust/history
+retention, private Muse snapshot cleanup, native path/style listing without
+contents, and launcher interruption with preference lock release. Generated readiness now checks read-only Muse settings and the Codex
+system config. The required build and native targets were attempted in this
+sandbox: Docker Engine/CLI on the trusted launcher path is absent, and native
+acceptance also encounters the read-only host home. Native Codex trust/profile
+loading and pinned OpenCode mixed-style precedence, image startup, live concurrent
+clients, authenticated operation and account gates therefore remain unaccepted.
+
+Final local verification: `make -C box verify-static` and `make -C box pins`
+passed. Bats reported 392 cases: 353 passed and 39 skipped for unavailable
+prerequisites (including the Docker CLI on the launchers' fixed trusted PATH).
+Temporary ShellCheck/Bats binaries were used; executable disposable projects
+lived under `/persist/box-tests` because host HOME is read-only and cache is
+mounted noexec. All three image build targets and both native acceptance targets
+were attempted and remain blocked as described above. No native/runtime or
+account acceptance is inferred from static success.

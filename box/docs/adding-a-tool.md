@@ -59,3 +59,7 @@ Unknown artifacts, escaping paths, duplicate destinations, and missing consumers
 must fail validation. Native facts stay in package assets and guides; shared
 docs link them. A new integration is implemented only after these changes and
 accepted only when its declared runtime gates have evidence.
+
+Declare `directory_configs` in native precedence order in the registry. Adapters
+own native preference lifecycle and migration; shared libraries enumerate paths
+and validate containment without branching on tool IDs.

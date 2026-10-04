@@ -312,5 +312,25 @@ box_docker_exec() {
   box_assert_image "$image" "$file_version" "$version_file" "$tool" "$override"
   box_assert_network "$network"
   printf 'Container: %s\nState volume: %s\n' "$container" "$volume" >&2
-  exec "${docker_cmd[@]}" "${args[@]}"
+  local client_rc=0 client_pid
+  # Background + wait keeps launcher-only signals actionable while preserving stdin.
+  "${docker_cmd[@]}" "${args[@]}" <&0 &
+  client_pid=$!
+  trap 'box_interrupt_client INT 130 "$client_pid"' INT
+  trap 'box_interrupt_client TERM 143 "$client_pid"' TERM
+  trap 'box_interrupt_client HUP 129 "$client_pid"' HUP
+  wait "$client_pid" || client_rc=$?
+  trap - INT TERM HUP
+  exit "$client_rc"
+}
+
+# Stop only this launcher's container; release persistent locks and EXIT snapshots.
+box_interrupt_client() {
+  local signal=$1 status=$2 client_pid=$3
+  trap - INT TERM HUP
+  kill -s "$signal" "$client_pid" 2>/dev/null || true
+  timeout --kill-after=2 10 "${docker_cmd[@]}" stop --time 5 "$container" >/dev/null 2>&1 || true
+  kill -TERM "$client_pid" 2>/dev/null || true
+  wait "$client_pid" 2>/dev/null || true
+  exit "$status"
 }

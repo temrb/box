@@ -11,7 +11,7 @@ with open("/etc/codex/requirements.toml", "rb") as f:
     actual = tomllib.load(f)
 if actual != json.loads(sys.argv[1]):
     sys.exit("FAIL: Codex managed policy differs")
-with open("/home/box/.codex/config.toml", "rb") as f:
+with open("/etc/codex/config.toml", "rb") as f:
     tomllib.load(f)
 PYPOLICY
 python3 - --policy-json "$_codex_expected" <<'PYNATIVE'
