@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2004,SC2178,SC2034 # nameref composite-key registry + forwarded state
 # Central declarative harness, artifact, state and adapter contracts.
 [[ -n "${_BOX_TOOLS_LOADED:-}" ]] && return 0
 _BOX_TOOLS_LOADED=1
