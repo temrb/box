@@ -2,6 +2,8 @@
 # Privileged mode plus a fixed tool path keep project-controlled PATH entries
 # and inherited environment shell functions from executing on the host before
 # the Docker boundary exists.
+# Intentionally an explicit per-tool entry point, not a dispatcher: install
+# clarity plus BOX_TOOL identity (box-o/box-c are deliberate clones).
 set -euo pipefail
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
@@ -27,6 +29,6 @@ source "$script_dir/lib/pins.sh"
 source "$script_dir/lib/build.sh"
 
 # shellcheck source=harnesses/muse/native.sh
-source "$script_dir/harnesses/muse/native.sh"
+source "$script_dir/$(box_tool_field muse native_helper)"
 # shellcheck source=harnesses/muse/launch.sh
 source "$script_dir/$(box_tool_field muse launch_adapter)"

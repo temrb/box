@@ -1,5 +1,7 @@
 echo "=== 4. OpenCode Operational Readiness ==="
 command -v opencode >/dev/null || { echo 'FAIL: opencode binary not on PATH' >&2; exit 1; }
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v jq >/dev/null || { echo 'FAIL: jq not on PATH' >&2; exit 1; }
 printf 'OpenCode binary version: '
 opencode_version_out=$(opencode --version 2>&1) || { echo 'FAIL: opencode --version failed' >&2; exit 1; }
 printf '%s\n' "$opencode_version_out"
@@ -10,9 +12,7 @@ for _parent in /persist/data /persist/data/opencode /persist/data/opencode/openc
   [[ ! -L "$_parent" ]] || { echo 'FAIL: redirected native OpenCode cache parent' >&2; exit 1; }
 done
 for _cache in /persist/data/opencode/opencode/opencode.db /persist/data/opencode/opencode/opencode.db-wal /persist/data/opencode/opencode/opencode.db-shm; do
-  if [[ -e "$_cache" || -L "$_cache" ]]; then
-    [[ ! -L "$_cache" && -f "$_cache" && "$(stat -c %u "$_cache")" == "$(id -u)" && "$(stat -c %a "$_cache")" == 600 && -w "$_cache" ]] || { echo 'FAIL: unsafe native authentication cache owner/mode/writability' >&2; exit 1; }
-  fi
+  box_verify_cache "$_cache"
 done
 # The pinned v2 native credential store is SQLite, not the retired auth.json cache.
 # Inspect natively without printing account metadata or keys. Missing inspection fails.

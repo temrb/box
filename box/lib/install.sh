@@ -1,6 +1,12 @@
 # shellcheck shell=bash
 # Host installation file operations, separated from Docker/setup orchestration.
 # Source after preflight.sh and tools.sh. These helpers never read secrets.
+# box_atomic_install is the single src→dest atomic-publish home (update-pins
+# install_candidate migrated here too). Content writers stay separate by
+# construction: box_write_if_changed (compare + reference-mode),
+# box_seed_writable_config (create-only + hardlink publish), the docker-CLI
+# reset (generated content + backup), and the installed-pin sync (validation
+# between staging and publish) cannot share a src→dest primitive.
 # shellcheck disable=SC2154 # registry and host_uid belong to the caller.
 [[ -n "${_BOX_INSTALL_LOADED:-}" ]] && return 0
 _BOX_INSTALL_LOADED=1
@@ -9,7 +15,8 @@ box_install_warn() { printf '  [warn] %s\n' "$*" >&2; }
 
 # Stage beside the destination so failed/interrupted writes leave its valid
 # bytes intact. A subshell keeps cleanup traps local to this operation.
-box_install_file_atomic() (
+# Usage: box_atomic_install <src> <dest> <mode>
+box_atomic_install() (
   local src=$1 dest=$2 mode=$3 stage
   stage=$(mktemp "${dest%/*}/.box-install.XXXXXX") || die "Cannot stage installation: $dest"
   trap 'rm -f -- "$stage"' EXIT
@@ -31,7 +38,7 @@ box_install_tool_config() {
     cp -p -- "$dest" "$dest.bak" || die "Cannot back up customized config: $dest"
     box_install_warn "$dest customized; previous version saved to $dest.bak (overwritten)."
   fi
-  box_install_file_atomic "$src" "$dest" "${3:-644}"
+  box_atomic_install "$src" "$dest" "${3:-644}"
 }
 
 # Installed pins win on reruns; only explicit update/sync replaces them.
@@ -41,7 +48,7 @@ box_install_version_pin() {
   [[ ! -L "$dest" && ! -L "$src" ]] || die "Refusing to follow symlink in version-pin paths: $dest"
   [[ ! -e "$dest" || -f "$dest" ]] || die 'Installed pins must be a regular file.'
   if [[ ! -e "$dest" ]]; then
-    box_install_file_atomic "$src" "$dest" 644
+    box_atomic_install "$src" "$dest" 644
   elif ! cmp -s -- "$src" "$dest"; then
     box_install_warn "$dest differs from the bundle; keeping installed pins (sync via make -C box sync-pins-<stem>; see docs/upgrades.md)."
   fi

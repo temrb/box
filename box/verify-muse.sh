@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify-muse.sh — in-container readiness harness for box-m.
-# GENERATED NOTE: do not edit by hand — edit verify.d/ partials and run
-# gen-verify.sh. This file and verify-opencode.sh stay self-contained
+# GENERATED NOTE: do not edit by hand — edit shared/package verify.d/ partials and run
+# gen-verify.sh. All generated verifiers stay self-contained
 # (delivered via stdin under --shell, cannot source a shared file). Shared
 # §§1-2/5 (workspace, toolchain, containment) live once in verify.d/
 # (10-workspace.sh, 20-toolchain.sh, 50-containment.sh); §4 is
@@ -101,29 +101,61 @@ else
   echo 'Project build/test: SKIPPED (pass command as argument 2)'
 fi
 
-echo "=== 3. Network Egress Check ==="
-command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
-# Provider API root (matches settings.json api.base_url): any HTTP response
-# code — including 4xx without credentials — proves TCP+TLS egress. Record
-# both the curl exit and the HTTP code: FAIL on transport failure (rc != 0)
-# or empty/000 code.
-provider_rc=0
-provider_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://api.meta.ai/v1 2>/dev/null) || provider_rc=$?
-[[ "$provider_rc" -eq 0 && -n "${provider_code:-}" && "$provider_code" != "000" ]] \
-  || { echo "FAIL: outbound HTTPS to api.meta.ai/v1 unreachable (curl rc=$provider_rc http=${provider_code:-none})" >&2; exit 1; }
-echo "Outbound HTTPS to api.meta.ai/v1 (HTTP $provider_code): PASS"
+# Shared verify helpers (defined once here, available to §§3-4/6 below).
+# Outputs stay self-contained: no sourcing, just concatenation order.
+# Egress proof: any HTTP response code — including 4xx — proves TCP+TLS.
+# FAIL on transport failure (rc != 0) or empty/000 code. Optional $3 hint
+# appends context to the FAIL line only.
+box_verify_egress() {
+  local url=${1:-} label=${2:-} hint=${3:-} rc=0 code
+  [[ -n "$url" && -n "$label" ]] || { echo 'FAIL: internal egress arguments' >&2; exit 1; }
+  command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
+  code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null) || rc=$?
+  [[ "$rc" -eq 0 && -n "${code:-}" && "$code" != "000" ]] \
+    || { echo "FAIL: outbound HTTPS to $label unreachable (curl rc=$rc http=${code:-none}$hint)" >&2; exit 1; }
+  echo "Outbound HTTPS to $label (HTTP $code): PASS"
+}
+# Auth-cache hygiene: existing caches must be user-owned regular files with
+# mode 600 and writable (refresh). Missing caches are fine (keyless login).
+box_verify_cache() {
+  local cache=${1:-} label=${2:-unsafe native authentication cache owner/mode/writability}
+  [[ -n "$cache" ]] || { echo 'FAIL: internal cache arguments' >&2; exit 1; }
+  if [[ -e "$cache" || -L "$cache" ]]; then
+    [[ ! -L "$cache" && -f "$cache" && "$(stat -c %u "$cache")" == "$(id -u)" && "$(stat -c %a "$cache")" == 600 && -w "$cache" ]] \
+      || { echo "FAIL: $label" >&2; exit 1; }
+  fi
+}
+# Outer-runtime unshare probe: unprivileged `unshare -Ur` needs no
+# capabilities, so an observed block is gVisor seccomp/runsc behavior, not
+# `--cap-drop=ALL`+`no-new-privileges` alone. Record evidence (exit codes).
+box_verify_unshare() {
+  if command -v unshare >/dev/null; then
+    set +e
+    unshare -Ur true >/dev/null 2>&1
+    unshare_status=$?
+    set -e
+    if ((unshare_status == 0)); then
+      echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
+      box_warnings=$((box_warnings+1))
+    else
+      echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
+    fi
+  else
+    echo 'Inner unshare probe: SKIPPED (unshare not installed)'
+  fi
+}
 
-# Device-flow endpoint (muse login): same transport-failure rule. Regression
-# for runsc + Docker embedded DNS (127.0.0.11) failures that present as
-# `login failed: device flow transport error` while api.meta.ai/v1 may
-# already be covered above.
-auth_rc=0
-auth_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://auth.meta.com/ 2>/dev/null) || auth_rc=$?
-[[ "$auth_rc" -eq 0 && -n "${auth_code:-}" && "$auth_code" != "000" ]] \
-  || { echo "FAIL: outbound HTTPS to auth.meta.com unreachable (curl rc=$auth_rc http=${auth_code:-none}; muse login device flow will fail)" >&2; exit 1; }
-echo "Outbound HTTPS to auth.meta.com (HTTP $auth_code): PASS"
+echo "=== 3. Network Egress Check ==="
+# Provider API root (matches settings.json endpoint_transport.base_url) and
+# device-flow endpoint (muse login): shared egress proof (see §2 helper).
+# Regression cover for runsc + Docker embedded DNS (127.0.0.11) failures that
+# present as `login failed: device flow transport error`.
+box_verify_egress https://api.meta.ai/v1 api.meta.ai/v1
+box_verify_egress https://auth.meta.com/ auth.meta.com '; muse login device flow will fail'
 echo "=== 4. Muse Code Operational Readiness ==="
 command -v muse >/dev/null || { echo 'FAIL: muse binary not on PATH' >&2; exit 1; }
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v jq >/dev/null || { echo 'FAIL: jq not on PATH' >&2; exit 1; }
 printf 'Muse binary version: '
 muse_version_out=$(timeout 30 muse --version 2>&1) || { echo 'FAIL: muse --version failed' >&2; exit 1; }
 printf '%s\n' "$muse_version_out"
@@ -133,9 +165,7 @@ test "${MUSE_NO_AUTO_UPDATE:-0}" = "1" || { echo 'FAIL: MUSE_NO_AUTO_UPDATE is n
 
 # shellcheck disable=SC2043 # one declared native cache today
 for _cache in /home/box/.config/muse/auth.json; do
-  if [[ -e "$_cache" || -L "$_cache" ]]; then
-    [[ ! -L "$_cache" && -f "$_cache" && "$(stat -c %u "$_cache")" == "$(id -u)" && "$(stat -c %a "$_cache")" == 600 && -w "$_cache" ]] || { echo 'FAIL: unsafe native authentication cache owner/mode/writability' >&2; exit 1; }
-  fi
+  box_verify_cache "$_cache"
 done
 # Muse auth: provider key OR device-login auth, without printing values.
 # Key path: MUSE_CODE_API_KEY in the environment (forwarded by name).
@@ -150,13 +180,13 @@ else
   exit 1
 fi
 
+# Enforced-keys presence (filter home: harnesses/muse/native.sh, baked in below).
+jq -e 'has("telemetry") and (.telemetry|has("enabled")) and has("endpoint_transport") and (.endpoint_transport|has("base_url")) and has("schema_version") and ((.model|type == "string") and (.model|length > 0)) and has("reasoning_effort")' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: Muse settings lack enforced keys' >&2; exit 1; }
 # Generated expectations come from the native source artifact.
-_muse_expected=\{\"\$schema\":\"https://dev.meta.ai/schemas/muse-settings-v1.json\"\,\"schema_version\":1\,\"model\":\"muse-spark-1.3\"\,\"reasoning_effort\":\"max\"\,\"approval_mode\":\"on-request\"\,\"approval_judge\":true\,\"telemetry\":\{\"enabled\":false\}\,\"api\":\{\"base_url\":\"https://api.meta.ai/v1\"\}\}
+_muse_expected=\{\"schema_version\":1\,\"model\":\"muse-spark-1.3\"\,\"reasoning_effort\":\"max\"\,\"telemetry\":\{\"enabled\":false\}\,\"endpoint_transport\":\{\"base_url\":\"https://api.meta.ai/v1\"\}\}
 jq -e --argjson expected "$_muse_expected" '
-  .approval_mode == $expected.approval_mode and
-  .approval_judge == $expected.approval_judge and
   .telemetry.enabled == $expected.telemetry.enabled and
-  .api.base_url == $expected.api.base_url and .schema_version == $expected.schema_version and
+  .endpoint_transport.base_url == $expected.endpoint_transport.base_url and .schema_version == $expected.schema_version and
   (.model|type == "string" and length > 0) and .reasoning_effort == $expected.reasoning_effort
 ' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: Muse startup settings differ' >&2; exit 1; }
 echo 'Muse Code settings.json validation: PASS'
@@ -308,20 +338,7 @@ if command -v bwrap >/dev/null; then
 else
   echo 'Inner bwrap probe: SKIPPED (bwrap not installed)'
 fi
-if command -v unshare >/dev/null; then
-  set +e
-  unshare -Ur true >/dev/null 2>&1
-  unshare_status=$?
-  set -e
-  if ((unshare_status == 0)); then
-    echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
-    box_warnings=$((box_warnings+1))
-  else
-    echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
-  fi
-else
-  echo 'Inner unshare probe: SKIPPED (unshare not installed)'
-fi
+box_verify_unshare
 
 echo "================================================================="
 if ((box_warnings > 0)); then

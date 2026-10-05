@@ -64,6 +64,13 @@ Regeneration comes only from authoritative partials/assets. Static checks cannot
 establish native enforcement, account compatibility, or architecture support.
 Rerun the package acceptance probes and explicit runtimes on every policy or
 release change. See [acceptance](acceptance.md) for remaining gates.
+On every Muse pin bump, re-validate the template top-level keys against the
+new binary: with the template as `~/.config/muse/settings.json`, run
+`muse exec --provider echo --disable-sandbox <prompt>` and require zero
+`tbh: ignoring unknown top-level member` warnings (1.4.0 accepts
+`endpoint_transport.base_url`, rejects `$schema`/`api`/`approval_mode`/
+`approval_judge`, and keeps approval CLI-only; `validate.sh` rejects the
+retired keys).
 
 ### Mandatory upstream updates
 

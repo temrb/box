@@ -1,7 +1,7 @@
 #!/bin/bash -p
 # gen-pins.sh — generate docs/architecture.md §4 pin table from the single pin source.
 # Pins come from the version files via the single lib/pins.sh home (parsed,
-# never sourced, never grep|cut so base64 `=` padding survives); the Debian
+# never sourced, never grep|cut so legacy base64 `=` padding survives); the Debian
 # base digest + date come from the Dockerfile. The checked-in table mirrors
 # the resolved values for humans. CI asserts generated == checked-in
 # (see Makefile verify-pins-generated); check-pins.sh remains as the
@@ -96,7 +96,7 @@ unset _pins_id _pins_tgt
   printf '|---|---|\n'
   printf '| Debian base digest | `%s` (%s) |\n' "$docker_digest" "$base_date"
   for _pins_id in $box_tool_ids; do
-    _pins_vkey=$(box_tool_field "$_pins_id" pin_keys); _pins_vkey=${_pins_vkey%% *}
+    _pins_vkey=$(box_version_key "$_pins_id")
     printf '| %s `%s` (`%s`) | `%s` |\n' "$(box_tool_field "$_pins_id" display)" "$_pins_vkey" "$(box_tool_field "$_pins_id" version_file)" "${!_pins_vkey}"
   done
   printf '<!-- pin-table-end -->\n'

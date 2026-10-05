@@ -102,7 +102,7 @@ load helpers
 
 @test "split libs expose every entry point (no monolith)" {
   [ ! -e "$BUNDLE_DIR/lib/common.sh" ]
-  for fn in die box_realpath box_mktemp_file box_mktemp_dir box_preflight_project box_preflight_denylist box_preflight_home box_preflight_credentials box_preflight_tool_dirs box_preflight_ipc box_preflight_symlinks box_preflight_git box_assert_outside_project     box_assert_owner_mode box_resolve_config box_load_version_file box_load_credentials box_credentials_filled box_require_tool box_tool_field box_tool_id_for_launcher box_docker_cli box_assert_engine box_assert_image box_assert_network box_assert_network_policy box_ensure_network box_assert_runtime box_docker_exec box_parse_launcher_args box_check_fallback box_project_identity box_extra_gids box_ensure_persistent_config_dir box_seed_writable_config box_write_if_changed box_enforce_safe_settings box_sync_host_tui_theme box_classify_probe_rc box_probe_runsc_dns box_auto_runtime box_maybe_auto_runtime box_device_url_code box_git_identity box_infer_git_identity box_base_args box_forward_keys box_runtime_signal box_maybe_tty box_muse_bypass box_usage_common_flags box_load_all_pins box_print_pin box_docker_base_digest box_assert_no_default_args box_assert_shell_placement box_assert_build_delegation box_pin_block box_image_tag box_image_tag_for_version box_build_image box_clean_image box_bundle_dir; do
+  for fn in die box_realpath box_mktemp_file box_mktemp_dir box_preflight_project box_preflight_denylist box_preflight_home box_preflight_credentials box_preflight_tool_dirs box_preflight_ipc box_preflight_symlinks box_preflight_git box_assert_outside_project     box_assert_owner_mode box_resolve_config box_load_version_file box_load_credentials box_credentials_filled box_require_tool box_tool_field box_tool_id_for_launcher box_docker_cli box_assert_engine box_assert_image box_assert_network box_assert_network_policy box_ensure_network box_assert_runtime box_docker_exec box_parse_launcher_args box_check_fallback box_project_identity box_extra_gids box_ensure_persistent_config_dir box_seed_writable_config box_write_if_changed box_enforce_safe_settings box_classify_probe_rc box_probe_runsc_dns box_auto_runtime box_maybe_auto_runtime box_device_url_code box_git_identity box_infer_git_identity box_base_args box_forward_keys box_runtime_signal box_maybe_tty box_muse_bypass box_usage_common_flags box_load_all_pins box_print_pin box_docker_base_digest box_assert_no_default_args box_assert_shell_placement box_assert_build_delegation box_pin_block box_image_tag box_image_tag_for_version box_build_image box_clean_image box_bundle_dir; do
     declare -F "$fn" >/dev/null || { echo "missing: $fn"; return 1; }
   done
 }
@@ -201,34 +201,5 @@ load helpers
   [ -z "$(find "$cli" -name '.config.json.tmp.*' -print -quit)" ]
 }
 
-@test "ensure_network creates then verifies (live daemon)" {
-  if ! docker info >/dev/null 2>&1; then skip "no reachable docker daemon"; fi
-  box_docker_cli "$TEST_TMP/docker-cli"
-  net="box-bats-$$"
-  docker network rm -- "$net" >/dev/null 2>&1 || true
-  result=$(box_ensure_network "$net" "${docker_cmd[@]}")
-  [ "$result" = "created" ]
-  result=$(box_ensure_network "$net" "${docker_cmd[@]}")
-  [ "$result" = "verified" ]
-  docker network rm -- "$net" >/dev/null
-}
-
-@test "ensure_network fails closed on wrong policy (live daemon)" {
-  if ! docker info >/dev/null 2>&1; then skip "no reachable docker daemon"; fi
-  box_docker_cli "$TEST_TMP/docker-cli"
-  net="box-bats-policy-$$"
-  docker network rm -- "$net" >/dev/null 2>&1 || true
-  # Default bridge options violate the sandbox policy (icc enabled).
-  "${docker_cmd[@]}" network create --driver=bridge -- "$net" >/dev/null
-  run box_ensure_network "$net" "${docker_cmd[@]}"
-  [ "$status" -ne 0 ]
-  docker network rm -- "$net" >/dev/null
-}
-
-@test "dns probe fails closed on missing image (live daemon)" {
-  if ! docker info >/dev/null 2>&1; then skip "no reachable docker daemon"; fi
-  box_docker_cli "$TEST_TMP/docker-cli"
-  run box_probe_runsc_dns "box-bats-no-such-image:0" box-m example.com
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"build it first"* ]]
-}
+# Live-daemon network/DNS tests live in tests/bats-live/network.bats (make
+# test-live); tests/bats/ stays daemon-free so verify-static needs no daemon.

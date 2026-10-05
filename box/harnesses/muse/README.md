@@ -28,8 +28,8 @@ request are separate account-dependent acceptance gates.
 
 At every launch, defaults merge with `.muse/settings.json` from the workspace
 root to the launch directory. Objects merge recursively; arrays and scalars
-replace earlier values. Four protected defaults (approval mode, approval judge,
-telemetry enabled, API base URL) apply after merging. Each launch receives a
+replace earlier values. Two protected defaults (telemetry enabled, endpoint
+transport base URL) apply after merging. Each launch receives a
 private read-only settings snapshot. UI settings-save operations are unsupported;
 put persistent preferences in defaults or directory files. Host themes are not
 imported. Outer
@@ -38,8 +38,9 @@ official `--disable-sandbox` flag container-only, whereas upstream documents
 it as opt-in for already-isolated environments. Opt out with empty
 `BOX_M_INNER_FLAG` or an explicit flag; diagnostic and auth subcommands
 (`login`, `logout`, `auth`, and others in `native.sh`) never receive it.
-Approval prompts stay on (approval mode enforced in `native.sh`); this is not
-approval circumvention. Per upstream docs this also lifts workspace
+Approval prompts stay on (binary defaults on-request/on; the pinned release
+accepts approval only as CLI flags, so directory files cannot weaken it);
+this is not approval circumvention. Per upstream docs this also lifts workspace
 confinement for file tools and forces full egress, so do not copy this flag
 to host use.
 `BOX_M_INNER_FLAG` may select/disable it, and explicit flags are respected.

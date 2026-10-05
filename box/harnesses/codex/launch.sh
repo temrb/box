@@ -15,22 +15,7 @@ USAGE
 }
 box_parse_launcher_args "$@"
 set -- "${launcher_rest[@]}"
-box_check_fallback BOX_C_ALLOW_FALLBACK
-tool_network=$(box_tool_field codex network)
-box_project_identity "$tool_network"
-config_raw=${BOX_C_CONFIG:-$HOME/.config/$(box_tool_field codex config_dir)/$(box_tool_field codex config_file)}
-config=$(box_resolve_config "$config_raw")
-# shellcheck source=lib/config-file.sh
-source "$script_dir/lib/config-file.sh"
-box_directory_configs codex
-# Format prerequisites apply only to this TOML consumer.
-box_config_validate "$config" toml
-version_file=${BOX_C_VERSION_FILE:-$HOME/.config/$(box_tool_field codex config_dir)/$(box_tool_field codex version_file)}
-# shellcheck disable=SC2046 # ordered registry keys intentionally split
-box_load_version_file "$version_file" "$(box_tool_field codex version_format)" $(box_tool_field codex pin_keys)
-file_version=$box_file_version
-box_git_identity BOX_C
-image=${BOX_C_IMAGE:-$(box_image_tag_for_version codex "$file_version" "$host_uid" "$host_gid")}
+box_launch_prologue codex
 if [[ -n "${BOX_C_STATE_ROOT:-}" && -n "${BOX_C_STATE_DIR:-}" && "$BOX_C_STATE_ROOT" != "$BOX_C_STATE_DIR" ]]; then
   die 'BOX_C_STATE_ROOT and legacy BOX_C_STATE_DIR must agree when both are set.'
 fi
@@ -38,7 +23,8 @@ state_root=$(box_plan_directory "${BOX_C_STATE_ROOT:-${BOX_C_STATE_DIR:-$HOME/$(
 codex_home=$(box_plan_directory "$state_root/$project_hash/codex-home")
 if [[ -d "$codex_home" ]]; then box_assert_owner_mode "$codex_home" 'Codex home' dir700; fi
 box_plan_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli" >/dev/null
-box_assert_native_cache "$codex_home/auth.json"
+# Auth/health checks run on live runs only: --dry-run never checks auth.
+if (( ! dry_run )); then box_assert_native_cache "$codex_home/auth.json"; fi
 if [[ -e "$codex_home/config.toml" || -L "$codex_home/config.toml" ]]; then
   [[ ! -L "$codex_home/config.toml" && -f "$codex_home/config.toml" ]] || die 'Invalid live Codex configuration.'
   box_assert_owner_mode "$codex_home/config.toml" 'Live Codex configuration' nowrite
@@ -65,27 +51,15 @@ if (( ! dry_run )); then
   box_backup_preferences "$codex_home/config.toml"
   if [[ -f "$codex_home/config.toml" ]]; then
     # Preserve native trust records only; all preferences inherit live defaults.
-    trust_config=$(python3 -I - "$codex_home/config.toml" <<'TRUST'
-import json, sys, tomllib
-with open(sys.argv[1], 'rb') as f:
-    data = tomllib.load(f)
-for path, record in data.get('projects', {}).items():
-    if isinstance(record, dict) and 'trust_level' in record:
-        print('[projects.' + json.dumps(path, ensure_ascii=False) + ']')
-        print('trust_level = ' + json.dumps(record['trust_level'], ensure_ascii=False))
-TRUST
-    ) || die 'Cannot preserve Codex trust records.'
+    trust_config=$(box_config_toml_subtree "$codex_home/config.toml" projects trust_level) \
+      || die 'Cannot preserve Codex trust records.'
     box_write_if_changed "$codex_home/config.toml" "$trust_config" 'Codex trust records'
   fi
+  flock -u "$preferences_lock"
+  exec {preferences_lock}>&-
 fi
 box_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli"
-# shellcheck disable=SC2046 # registry host list intentionally split
-box_maybe_auto_runtime "$image" "$tool_network" BOX_C_ALLOW_FALLBACK 'this run' $(box_tool_field codex probe_hosts)
-args=(run --rm --init --interactive --pull=never --name "$container"
-  --label org.openai.codex.box=true --label org.box.tool=codex
-  "${runtime_args[@]}" --user "$host_uid:$host_gid")
-box_base_args "$tool_network"
-args+=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bind-propagation=rprivate"
+launch_mounts=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=bind,src=$codex_home,dst=/home/box/.codex,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=volume,src=$volume,dst=/persist"
   --mount "type=bind,src=$config,dst=/etc/codex/config.toml,readonly"
@@ -93,24 +67,19 @@ args+=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bi
   --env "GIT_AUTHOR_NAME=$identity_name" --env "GIT_COMMITTER_NAME=$identity_name"
   --env "GIT_AUTHOR_EMAIL=$identity_email" --env "GIT_COMMITTER_EMAIL=$identity_email"
   --env GIT_CONFIG_GLOBAL=/dev/null --env GIT_CONFIG_NOSYSTEM=1)
-box_runtime_signal
-box_maybe_tty
+launch_forward=""
 if ((api_login)) || [[ "${BOX_C_AUTH:-chatgpt}" == api ]]; then
-  # shellcheck disable=SC2046
-  box_forward_keys $(box_tool_field codex forward_keys)
+  launch_forward="$(box_tool_field codex forward_keys)"
 fi
-# shellcheck disable=SC2086
-box_forward_keys $BOX_TERMINAL_KEYS
-box_extra_gids BOX_C_EXTRA_GIDS
-if ((shell_mode)); then
-  args+=(--entrypoint=/bin/bash "$image" "$@")
-elif ((api_login)); then
-  # Literal script: the secret is supplied by NAME and enters login via stdin.
-  # shellcheck disable=SC2016
-  args+=(--entrypoint=/bin/bash "$image" -c 'printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key')
-else
-  args+=("$image" "$@")
-fi
-image_override=0
-[[ -n "${BOX_C_IMAGE:-}" ]] && image_override=1
-box_docker_exec codex "$tool_network" "$image_override"
+codex_launch_tail() {
+  if ((shell_mode)); then
+    args+=(--entrypoint=/bin/bash "$image" "$@")
+  elif ((api_login)); then
+    # Literal script: the secret is supplied by NAME and enters login via stdin.
+    # shellcheck disable=SC2016
+    args+=(--entrypoint=/bin/bash "$image" -c 'printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key')
+  else
+    args+=("$image" "$@")
+  fi
+}
+box_launch_epilogue codex 'this run' org.openai.codex.box launch_mounts "$launch_forward" codex_launch_tail "$@"

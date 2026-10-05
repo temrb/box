@@ -8,6 +8,7 @@ box_harness_validate() {
   # Native v2 permissions: ordered array, last-match-wins. No lsp, no singular
   # permission, no bash/write/patch (v2 uses shell/edit). No image-owned deny
   # policy is shipped; ordinary permissions are configurable approval defaults.
+  # shell intentionally falls through to allow: the *.env ask rules cover read/edit tools only.
   jq -e '
     .default_agent == "plan" and .update == "disable"
     and (has("lsp") | not) and (has("permission") | not)

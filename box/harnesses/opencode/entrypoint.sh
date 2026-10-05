@@ -14,7 +14,7 @@ for cache in /persist/data/opencode/opencode/opencode.db /persist/data/opencode/
     }
   fi
 done
-# Serialize preference resets and the client for this persistent volume.
+# Serialize preference resets for this persistent volume (released before exec).
 for parent in /persist/config /persist/config/opencode; do
   [[ ! -L "$parent" ]] || { echo 'FAIL: redirected preference parent' >&2; exit 1; }
 done
@@ -36,6 +36,10 @@ for preference in cli.json tui.json opencode.jsonc; do
     rm -- "$file"
   fi
 done
+# Release the preference lock before exec: it serializes resets only, never
+# the client lifetime (a held lock would block concurrent runs silently).
+flock -u 9
+exec 9>&-
 if [[ "${BOX_OPENCODE_SHELL:-0}" == 1 ]]; then
   /bin/bash "$@"
   exit $?

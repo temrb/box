@@ -177,6 +177,20 @@ newline"
   [ "$status" -ne 0 ]
 }
 
+@test "self-dir bootstrap copies keep the realpath-first fallback" {
+  # Accepted duplication (Phase 2 finding 12, bootstrap paradox): no
+  # helpers exist before the bootstrap runs, so lib/tools.sh pins the
+  # canonical snippet and every ship-code site copies it. Drift fails here.
+  local f failed=0
+  while IFS= read -r f; do
+    grep -q "realpath" "$f" || { echo "lost realpath-first fallback: ${f#$BUNDLE_DIR/}"; failed=1; }
+  done < <(grep -rln "readlink -f" "$BUNDLE_DIR/lib" "$BUNDLE_DIR/harnesses" \
+    "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o" "$BUNDLE_DIR/box-c" "$BUNDLE_DIR/box-m-login" \
+    "$BUNDLE_DIR/setup.sh" "$BUNDLE_DIR/gen-verify.sh" "$BUNDLE_DIR/gen-pins.sh" \
+    "$BUNDLE_DIR/check-pins.sh" "$BUNDLE_DIR/update-pins.sh")
+  [ "$failed" -eq 0 ]
+}
+
 @test "preflight unsets GIT_* overrides before the worktree check" {
   if ! command -v git >/dev/null; then skip "git not installed"; fi
   # A standalone clone inside the project must pass even when hostile GIT_*

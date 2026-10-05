@@ -1,5 +1,7 @@
 echo "=== 4. Muse Code Operational Readiness ==="
 command -v muse >/dev/null || { echo 'FAIL: muse binary not on PATH' >&2; exit 1; }
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v jq >/dev/null || { echo 'FAIL: jq not on PATH' >&2; exit 1; }
 printf 'Muse binary version: '
 muse_version_out=$(timeout 30 muse --version 2>&1) || { echo 'FAIL: muse --version failed' >&2; exit 1; }
 printf '%s\n' "$muse_version_out"
@@ -9,9 +11,7 @@ test "${MUSE_NO_AUTO_UPDATE:-0}" = "1" || { echo 'FAIL: MUSE_NO_AUTO_UPDATE is n
 
 # shellcheck disable=SC2043 # one declared native cache today
 for _cache in /home/box/.config/muse/auth.json; do
-  if [[ -e "$_cache" || -L "$_cache" ]]; then
-    [[ ! -L "$_cache" && -f "$_cache" && "$(stat -c %u "$_cache")" == "$(id -u)" && "$(stat -c %a "$_cache")" == 600 && -w "$_cache" ]] || { echo 'FAIL: unsafe native authentication cache owner/mode/writability' >&2; exit 1; }
-  fi
+  box_verify_cache "$_cache"
 done
 # Muse auth: provider key OR device-login auth, without printing values.
 # Key path: MUSE_CODE_API_KEY in the environment (forwarded by name).
@@ -26,13 +26,13 @@ else
   exit 1
 fi
 
+# Enforced-keys presence (filter home: harnesses/muse/native.sh, baked in below).
+jq -e '@@ENFORCED_JQ@@' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: Muse settings lack enforced keys' >&2; exit 1; }
 # Generated expectations come from the native source artifact.
 _muse_expected=@@ARTIFACT_SETTINGS@@
 jq -e --argjson expected "$_muse_expected" '
-  .approval_mode == $expected.approval_mode and
-  .approval_judge == $expected.approval_judge and
   .telemetry.enabled == $expected.telemetry.enabled and
-  .api.base_url == $expected.api.base_url and .schema_version == $expected.schema_version and
+  .endpoint_transport.base_url == $expected.endpoint_transport.base_url and .schema_version == $expected.schema_version and
   (.model|type == "string" and length > 0) and .reasoning_effort == $expected.reasoning_effort
 ' /home/box/.config/muse/settings.json >/dev/null || { echo 'FAIL: Muse startup settings differ' >&2; exit 1; }
 echo 'Muse Code settings.json validation: PASS'

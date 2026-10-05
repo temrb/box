@@ -22,6 +22,8 @@ script_dir=$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || readli
 source "$script_dir/lib/pins.sh"
 # shellcheck source=lib/build.sh
 source "$script_dir/lib/build.sh"
+# shellcheck source=lib/install.sh
+source "$script_dir/lib/install.sh"
 
 bundle_dir=$script_dir
 
@@ -118,6 +120,45 @@ assert_url_safe_version() {
   [[ "$ver" != *'..'* ]] || die "Invalid $what: ${ver:-<empty>}"
 }
 
+# Complete-seed fast path for sha-pinned triples. When
+# BOX_UPDATE_<PREFIX>_VERSION is set, require the two SHA seeds with it,
+# reject conflict with an explicit CLI pin, assign the three target vars and
+# return 0. With no version seed, reject lone SHA seeds and return 1 so the
+# caller continues to explicit/channel resolution. Dies (never silent)
+# because it runs in the caller's shell, not a substitution.
+# Usage: if box_update_seed <PREFIX> <explicit> <flag> <Display> <vvar> <avar> <rvar>; then return 0; fi
+box_update_seed() {
+  local prefix=${1:-} explicit=${2:-} flag=${3:-} display=${4:-}
+  local -n _seed_v=${5:-} _seed_a=${6:-} _seed_r=${7:-}
+  [[ -n "$prefix" && -n "$flag" && -n "$display" && -n "${5:-}" && -n "${6:-}" && -n "${7:-}" ]] \
+    || die 'Internal error: missing seed arguments.'
+  local vv="BOX_UPDATE_${prefix}_VERSION" va="BOX_UPDATE_${prefix}_SHA256_AMD64" vr="BOX_UPDATE_${prefix}_SHA256_ARM64"
+  if [[ -n "${!vv:-}" ]]; then
+    [[ -z "$explicit" ]] || die "Conflicting $display pins: $flag and $vv are both set."
+    [[ -n "${!va:-}" && -n "${!vr:-}" ]] \
+      || die "Partial $display seed: set $vv, $va, and $vr together."
+    _seed_v=${!vv}; _seed_a=${!va}; _seed_r=${!vr}
+    return 0
+  fi
+  [[ -z "${!va:-}${!vr:-}" ]] \
+    || die "Partial $display seed: set $vv, $va, and $vr together."
+  return 1
+}
+
+# Download <url> to caller-owned <file> and print its sha256 digest.
+# Transport failure removes the temp and returns 1 (callers die with
+# context, same contract as fetch_url); digest/archive validation stays
+# per-harness because companions differ (manifest, archive.py, tar listing).
+# Usage: computed=$(box_fetch_verify <url> <file>) || die "Cannot download ..."
+box_fetch_verify() {
+  local url=${1:-} file=${2:-} computed
+  [[ -n "$url" && -n "$file" ]] || die 'Internal error: missing fetch arguments.'
+  curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --connect-timeout 15 --max-time 600 -o "$file" -- "$url" \
+    || { rm -f -- "$file"; return 1; }
+  computed=$(sha256sum -- "$file"); computed=${computed%% *}
+  printf '%s' "$computed"
+}
+
 # Single pin home: current pins land in same-named globals.
 box_load_all_pins "$bundle_dir"
 for _upd_id in $box_tool_ids; do
@@ -197,7 +238,7 @@ for id in $box_tool_ids; do
   changed[$id]=0
   changed_keys=''
   keys=$(box_tool_field "$id" pin_keys)
-  version_key=${keys%% *}
+  version_key=$(box_version_key "$id")
   for key in $keys; do
     if [[ "${new_pin[$key]}" != "${!key}" ]]; then
       changed[$id]=1
@@ -252,15 +293,12 @@ rollback=1
 
 # Atomic rename inside the destination directory.
 install_candidate() {
-  local id=${1:-} tmp=${2:-} vf dest stage
+  local id=${1:-} tmp=${2:-} vf dest
   box_require_tool "$id"
   vf=$(box_tool_field "$id" version_file)
   dest="$bundle_dir/$(box_tool_field "$id" version_source)"
   [[ ! -L "$dest" ]] || die "Refusing to follow symlink: $dest"
-  stage=$(mktemp "${dest%/*}/.${vf}.tmp.XXXXXX") || die "Cannot stage pin update: $dest"
-  cp -- "$tmp" "$stage" || { rm -f -- "$stage"; die "Cannot stage pin update: $dest"; }
-  chmod 644 -- "$stage" || { rm -f -- "$stage"; die "Cannot stage pin update: $dest"; }
-  mv -f -- "$stage" "$dest" || { rm -f -- "$stage"; die "Cannot write $dest."; }
+  box_atomic_install "$tmp" "$dest" 644
 }
 for id in $box_tool_ids; do
   if ((changed[$id])); then install_candidate "$id" "${candidates[$id]}"; fi

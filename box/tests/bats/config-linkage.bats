@@ -15,9 +15,13 @@ load helpers
 }
 
 @test "registry probe hosts feed the runsc DNS probe (no literals)" {
-  run grep -F 'box_tool_field muse probe_hosts' "$BUNDLE_DIR/harnesses/muse/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F 'box_tool_field opencode probe_hosts' "$BUNDLE_DIR/harnesses/opencode/launch.sh"
+  # Adapters delegate to the shared epilogue, which passes each tool's
+  # registry probe_hosts to the DNS probe (no per-tool literals).
+  for id in $box_tool_ids; do
+    run grep -F "box_launch_epilogue $id" "$BUNDLE_DIR/harnesses/$id/launch.sh"
+    [ "$status" -eq 0 ] || { echo "$id adapter bypasses the shared epilogue"; return 1; }
+  done
+  run grep -F 'box_tool_field "$id" probe_hosts' "$BUNDLE_DIR/lib/run.sh"
   [ "$status" -eq 0 ]
   run grep -F 'getent hosts $probe_host' "$BUNDLE_DIR/lib/launcher.sh"
   [ "$status" -eq 0 ]
@@ -120,22 +124,21 @@ load helpers
   [[ "$output" == *"org.meta.muse.box.sha256-arm64"* ]]
 }
 
-@test "registry networks and allowlist feed both launchers (no literals)" {
-  run grep -F 'box_tool_field muse network' "$BUNDLE_DIR/harnesses/muse/launch.sh"
+@test "registry networks and allowlist feed all launchers (no literals)" {
+  # Network comes from the shared prologue's registry lookup; adapters
+  # delegate to it (no per-tool literals).
+  run grep -F 'box_tool_field "$id" network' "$BUNDLE_DIR/lib/launcher.sh"
   [ "$status" -eq 0 ]
-  run grep -F 'box_tool_field opencode network' "$BUNDLE_DIR/harnesses/opencode/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F 'box_tool_field muse forward_keys' "$BUNDLE_DIR/harnesses/muse/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F 'box_tool_field opencode forward_keys' "$BUNDLE_DIR/harnesses/opencode/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F '$BOX_CRED_KEYS' "$BUNDLE_DIR/harnesses/muse/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F '$BOX_CRED_KEYS' "$BUNDLE_DIR/harnesses/opencode/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F '$BOX_TERMINAL_KEYS' "$BUNDLE_DIR/harnesses/muse/launch.sh"
-  [ "$status" -eq 0 ]
-  run grep -F '$BOX_TERMINAL_KEYS' "$BUNDLE_DIR/harnesses/opencode/launch.sh"
+  for id in $box_tool_ids; do
+    run grep -F "box_launch_prologue $id" "$BUNDLE_DIR/harnesses/$id/launch.sh"
+    [ "$status" -eq 0 ] || { echo "$id adapter bypasses the shared prologue"; return 1; }
+    run grep -F "box_tool_field $id forward_keys" "$BUNDLE_DIR/harnesses/$id/launch.sh"
+    [ "$status" -eq 0 ]
+    run grep -F '$BOX_CRED_KEYS' "$BUNDLE_DIR/harnesses/$id/launch.sh"
+    [ "$status" -eq 0 ]
+  done
+  # Terminal keys are forwarded once by the shared epilogue.
+  run grep -F 'box_forward_keys $BOX_TERMINAL_KEYS' "$BUNDLE_DIR/lib/run.sh"
   [ "$status" -eq 0 ]
   # No hardcoded network/allowlist literals left in the launchers.
   run grep -n 'box_base_args box-m\|box_base_args box-o' \
@@ -159,11 +162,81 @@ load helpers
   [ "$BOX_TERMINAL_KEYS" = "TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION NO_COLOR FORCE_COLOR CLICOLOR_FORCE" ]
 }
 
-@test "registry endpoints match settings.json (muse)" {
-  model=$(jq -r '.model' -- "$BUNDLE_DIR/harnesses/muse/config/settings.json")
-  [ "$model" = "$(jq -r .model "$BUNDLE_DIR/harnesses/muse/config/settings.json")" ]
-  base=$(jq -r '.api.base_url' -- "$BUNDLE_DIR/harnesses/muse/config/settings.json")
-  [ "$base" = "$(jq -r .api.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" ]
+@test "muse template avoids binary-rejected top-level keys" {
+  # The pinned binary (1.4.0) warns `tbh: ignoring unknown top-level
+  # member` for $schema, api, approval_mode, and approval_judge; the API
+  # pin lives under endpoint_transport and approval is CLI-only. The
+  # template must carry the enforced keys and none of the retired ones,
+  # and every enforcement surface must reference the new key (a partial
+  # migration fails here).
+  run jq -e '.telemetry.enabled == false and .endpoint_transport.base_url == "https://api.meta.ai/v1"' \
+    -- "$BUNDLE_DIR/harnesses/muse/config/settings.json"
+  [ "$status" -eq 0 ]
+  for dead in '$schema' api approval_mode approval_judge; do
+    run jq -e --arg k "$dead" 'has($k)' \
+      -- "$BUNDLE_DIR/harnesses/muse/config/settings.json"
+    [ "$status" -ne 0 ] || { echo "template carries retired key: $dead"; return 1; }
+  done
+  for f in harnesses/muse/native.sh \
+      harnesses/muse/validate.sh harnesses/muse/verify.d/40-readiness-muse.sh \
+      harnesses/muse/verify.d/30-network-muse.sh; do
+    run grep -Fq 'endpoint_transport' "$BUNDLE_DIR/$f"
+    [ "$status" -eq 0 ] || { echo "$f misses endpoint_transport"; return 1; }
+  done
+  # launch.sh enforces through the single filter home, not inline jq.
+  run grep -Fq 'box_muse_enforced_jq' "$BUNDLE_DIR/harnesses/muse/launch.sh"
+  [ "$status" -eq 0 ] || { echo "harnesses/muse/launch.sh misses the enforced-keys filter"; return 1; }
+  # No positive jq reference to the retired keys may survive outside the
+  # negative guards (validate.sh names them to reject them; native.sh strips
+  # them via del(), mirroring the validator).
+  for f in harnesses/muse/launch.sh \
+      harnesses/muse/verify.d/40-readiness-muse.sh \
+      harnesses/muse/verify.d/30-network-muse.sh lib/config-file.sh; do
+    run grep -Eq '\.api\.base_url|\.approval_mode|\.approval_judge|has\("(api|approval_mode|approval_judge)"\)' \
+      "$BUNDLE_DIR/$f"
+    [ "$status" -ne 0 ] || { echo "$f still references a retired key"; return 1; }
+  done
+  run bash -c 'grep -E "\.api\.base_url|\.approval_mode|\.approval_judge|has\(\"(api|approval_mode|approval_judge)\"\)" "$0" | grep -v "del(" >&2' \
+    "$BUNDLE_DIR/harnesses/muse/native.sh"
+  [ "$status" -ne 0 ] || { echo "harnesses/muse/native.sh references a retired key outside del()"; return 1; }
+}
+
+@test "muse validator rejects drifted endpoint_transport and retired keys" {
+  # Per-key drift negatives for the enforced contract: each mutation must
+  # fail gen-pins.sh --check via box_harness_validate.
+  copy="$TEST_TMP/bundle-muse-drift"
+  rm -rf -- "$copy"
+  cp -r "$BUNDLE_DIR" "$copy"
+  tpl="$copy/harnesses/muse/config/settings.json"
+  mutate_must_fail() {
+    run bash "$copy/gen-pins.sh" --check
+    [ "$status" -ne 0 ] || { echo "drift accepted: $1"; return 1; }
+    cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$tpl"
+  }
+  jq '.endpoint_transport.base_url = "https://evil.example"' \
+    -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "evil base_url"
+  jq '.telemetry.enabled = true' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "telemetry enabled"
+  jq '.approval_mode = "on-request"' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "retired approval_mode"
+  jq '.api = {"base_url": "https://api.meta.ai/v1"}' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "retired api block"
+  jq '.["$schema"] = "https://evil.example/muse-schema"' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "retired $schema"
+  jq '.approval_judge = "on-request"' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "retired approval_judge"
+  jq 'del(.endpoint_transport)' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "missing endpoint_transport"
+  jq 'del(.telemetry)' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "missing telemetry"
+  jq '.schema_version = 2' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "bad schema_version"
+  jq '.model = ""' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "empty model"
+  jq 'del(.model)' -- "$tpl" >"$tpl.new" && mv -- "$tpl.new" "$tpl"
+  mutate_must_fail "missing model"
+  rm -rf -- "$copy"
 }
 
 @test "opencode ships no model or provider pins (pure /connect)" {
@@ -187,11 +260,11 @@ load helpers
     host=${url#https://}; host=${host%%/*}
     [[ " $(box_tool_field "$id" probe_hosts) " == *" $host "* ]] || { echo "probe_url host not in probe_hosts: $id/$host"; return 1; }
   done
-  [ "$(box_tool_field muse probe_url)" = "$(jq -r .api.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" ]
+  [ "$(box_tool_field muse probe_url)" = "$(jq -r .endpoint_transport.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" ]
   run grep -Fq "$(box_tool_field muse probe_url)" "$BUNDLE_DIR/harnesses/muse/verify.d/30-network-muse.sh"
   [ "$status" -eq 0 ]
   run grep -Fq "$(box_tool_field codex probe_url)" "$BUNDLE_DIR/harnesses/codex/verify.d/30-network-codex.sh"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
   for host in $(box_tool_field codex probe_hosts); do
     run grep -Fq "$host" "$BUNDLE_DIR/harnesses/codex/verify.d/30-network-codex.sh"
     [ "$status" -eq 0 ]
@@ -221,7 +294,7 @@ PYINNER
     run grep -Fq "$host" "$BUNDLE_DIR/harnesses/muse/verify.d/30-network-muse.sh"
     [ "$status" -eq 0 ] || { echo "harness misses $host"; return 1; }
   done
-  run grep -Fq "$(jq -r .api.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" "$BUNDLE_DIR/harnesses/muse/verify.d/30-network-muse.sh"
+  run grep -Fq "$(jq -r .endpoint_transport.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" "$BUNDLE_DIR/harnesses/muse/verify.d/30-network-muse.sh"
   [ "$status" -eq 0 ]
   # The Meta auth URL has no runtime consumer (only the harness probe), so it
   # lives as a pinned literal here rather than a registry field.
@@ -384,7 +457,7 @@ PYINNER
 
 @test "readiness harness mirrors version pins and muse safety keys" {
   # The readiness partials carry binary versions as @@<PIN_KEY>@@ tokens
-  # (resolved by gen-verify.sh) and grade the four enforced safety keys;
+  # (resolved by gen-verify.sh) and grade the enforced safety keys;
   # gen-pins.sh --check gates the same contract, and this test names it
   # (see docs/upgrades.md §12 bump checklist).
   unset project
@@ -397,4 +470,42 @@ PYINNER
   [ "$status" -eq 0 ]
   run bash "$BUNDLE_DIR/gen-verify.sh" --check
   [ "$status" -eq 0 ]
+}
+
+@test "prologue preserves the version-file path for the exec tail" {
+  # box_docker_exec expands $version_file under set -u when calling
+  # box_assert_image; the shared prologue must set that global from the
+  # resolved override/default path (dry-run exits before image validation,
+  # so dry-run shape tests cannot catch a missing assignment).
+  script_dir=$BUNDLE_DIR
+  muse_cfg="$TEST_TMP/muse-settings.json"
+  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$muse_cfg"
+  chmod 644 -- "$muse_cfg"
+  muse_vf="$TEST_TMP/version-muse.env"
+  make_muse_version_file "$muse_vf"
+  opencode_cfg="$TEST_TMP/opencode.json"
+  cp -- "$BUNDLE_DIR/harnesses/opencode/config/opencode.json" "$opencode_cfg"
+  chmod 644 -- "$opencode_cfg"
+  opencode_vf="$TEST_TMP/version-opencode.env"
+  make_opencode_version_file "$opencode_vf"
+  codex_cfg="$TEST_TMP/codex-config.toml"
+  cp -- "$BUNDLE_DIR/harnesses/codex/config/config.toml" "$codex_cfg"
+  chmod 600 -- "$codex_cfg"
+  codex_vf="$TEST_TMP/version-codex.env"
+  make_codex_version_file "$codex_vf"
+  export BOX_M_CONFIG="$muse_cfg" BOX_M_VERSION_FILE="$muse_vf"
+  export BOX_O_CONFIG="$opencode_cfg" BOX_O_VERSION_FILE="$opencode_vf"
+  export BOX_C_CONFIG="$codex_cfg" BOX_C_VERSION_FILE="$codex_vf"
+  cd -- "$TEST_PROJ"
+  for id in $box_tool_ids; do
+    box_parse_launcher_args
+    unset version_file file_version image tool_network config
+    box_launch_prologue "$id"
+    [[ -n "${version_file:-}" ]] || { echo "$id: version_file unset after prologue"; return 1; }
+    [[ -n "${file_version:-}" ]] || { echo "$id: file_version unset after prologue"; return 1; }
+    gpfx=$(box_tool_field "$id" git_prefix)
+    vf_var="${gpfx}_VERSION_FILE"
+    [[ "$version_file" == "${!vf_var}" ]] || { echo "$id: version_file mismatch: $version_file != ${!vf_var}"; return 1; }
+    ( set -u; : "$version_file" ) || { echo "$id: version_file unbound under set -u"; return 1; }
+  done
 }

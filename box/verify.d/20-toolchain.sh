@@ -40,3 +40,47 @@ else
   echo 'Project build/test: SKIPPED (pass command as argument 2)'
 fi
 
+# Shared verify helpers (defined once here, available to §§3-4/6 below).
+# Outputs stay self-contained: no sourcing, just concatenation order.
+# Egress proof: any HTTP response code — including 4xx — proves TCP+TLS.
+# FAIL on transport failure (rc != 0) or empty/000 code. Optional $3 hint
+# appends context to the FAIL line only.
+box_verify_egress() {
+  local url=${1:-} label=${2:-} hint=${3:-} rc=0 code
+  [[ -n "$url" && -n "$label" ]] || { echo 'FAIL: internal egress arguments' >&2; exit 1; }
+  command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
+  code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null) || rc=$?
+  [[ "$rc" -eq 0 && -n "${code:-}" && "$code" != "000" ]] \
+    || { echo "FAIL: outbound HTTPS to $label unreachable (curl rc=$rc http=${code:-none}$hint)" >&2; exit 1; }
+  echo "Outbound HTTPS to $label (HTTP $code): PASS"
+}
+# Auth-cache hygiene: existing caches must be user-owned regular files with
+# mode 600 and writable (refresh). Missing caches are fine (keyless login).
+box_verify_cache() {
+  local cache=${1:-} label=${2:-unsafe native authentication cache owner/mode/writability}
+  [[ -n "$cache" ]] || { echo 'FAIL: internal cache arguments' >&2; exit 1; }
+  if [[ -e "$cache" || -L "$cache" ]]; then
+    [[ ! -L "$cache" && -f "$cache" && "$(stat -c %u "$cache")" == "$(id -u)" && "$(stat -c %a "$cache")" == 600 && -w "$cache" ]] \
+      || { echo "FAIL: $label" >&2; exit 1; }
+  fi
+}
+# Outer-runtime unshare probe: unprivileged `unshare -Ur` needs no
+# capabilities, so an observed block is gVisor seccomp/runsc behavior, not
+# `--cap-drop=ALL`+`no-new-privileges` alone. Record evidence (exit codes).
+box_verify_unshare() {
+  if command -v unshare >/dev/null; then
+    set +e
+    unshare -Ur true >/dev/null 2>&1
+    unshare_status=$?
+    set -e
+    if ((unshare_status == 0)); then
+      echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
+      box_warnings=$((box_warnings+1))
+    else
+      echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
+    fi
+  else
+    echo 'Inner unshare probe: SKIPPED (unshare not installed)'
+  fi
+}
+

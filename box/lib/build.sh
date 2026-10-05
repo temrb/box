@@ -80,7 +80,7 @@ box_image_tag() {
   box_require_tool "$tool"
   [[ -n "$bundle" && -n "$uid" && -n "$gid" ]] || die 'Internal error: missing tag arguments.'
   box_load_all_pins "$bundle" >/dev/null
-  vkey=$(box_tool_field "$tool" pin_keys); vkey=${vkey%% *}
+  vkey=$(box_version_key "$tool")
   ver=${!vkey:-}
   [[ -n "$ver" ]] || die 'Empty version pin for tag.'
   box_image_tag_for_version "$tool" "$ver" "$uid" "$gid"

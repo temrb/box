@@ -1,5 +1,50 @@
 load helpers
 
+# Offline docker double for --dry-run-only tests (same design as
+# launchers.bats, duplicated: helpers.bash is shared and out of scope).
+# The launchers pin a trusted PATH and run under `bash -p`, so neither a PATH
+# entry nor an exported shell function can inject the auto-runtime-style
+# docker_cmd stub into the real entry point — and box_docker_cli dies without
+# a docker binary even though --dry-run never executes it (box_docker_exec
+# prints and exits before any assert). The equivalent double is therefore a
+# per-test bundle copy whose launcher PATH lines also cover a stub bin dir
+# (plus a python3 symlink when the test env has one, for TOML configs); the
+# stub docker is presence-only and fails closed if ever executed. Fixture
+# reads keep using $BUNDLE_DIR; only the executed launcher path moves to
+# $STUB_BUNDLE. Tests skip (not fail) when the sandbox project root itself is
+# on the launcher project denylist.
+_make_stubbin() {
+  if box_denylisted_system_path "$TEST_PROJ"; then
+    skip "env-blocked: test project is on the launcher project denylist"
+  fi
+  STUBBIN="$TEST_TMP/stubbin"
+  mkdir -p -- "$STUBBIN"
+  printf '#!/bin/bash\nprintf "stub docker: must not execute on --dry-run\\n" >&2\nexit 125\n' \
+    >"$STUBBIN/docker"
+  chmod +x -- "$STUBBIN/docker"
+  if command -v python3 >/dev/null 2>&1; then
+    ln -sf -- "$(command -v python3)" "$STUBBIN/python3"
+  fi
+}
+
+_patch_launcher_path() {
+  # $1: launcher file — prepend the stub bin dir to its fixed PATH line.
+  sed -i 's|^PATH=/usr/local/sbin|PATH='"$STUBBIN"':/usr/local/sbin|' "$1"
+  grep -Fq -- "PATH=$STUBBIN:/usr/local/sbin" "$1"
+}
+
+_stub_dryrun_bundle() {
+  # Full bundle copy with patched launcher PATH lines; sets $STUB_BUNDLE.
+  _make_stubbin
+  STUB_BUNDLE="$TEST_TMP/stub-bundle"
+  rm -rf -- "$STUB_BUNDLE"
+  cp -r -- "$BUNDLE_DIR" "$STUB_BUNDLE"
+  for _stub_l in box-m box-o box-c box-m-login; do
+    _patch_launcher_path "$STUB_BUNDLE/$_stub_l" || return 1
+  done
+  unset _stub_l
+}
+
 codex_fixture() {
   export BOX_C_CONFIG="$TEST_TMP/config.toml"
   export BOX_C_VERSION_FILE="$TEST_TMP/version-codex.env"
@@ -228,9 +273,9 @@ codex_fixture() {
 }
 
 @test "Codex dry-run is read-only and isolates physical projects under an overridden root" {
-  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
+  _stub_dryrun_bundle
   codex_fixture
-  run "$BUNDLE_DIR/box-c" --dry-run login
+  run "$STUB_BUNDLE/box-c" --dry-run login
   [ "$status" -eq 0 ]
   [[ "$output" == *login*--device-auth* ]]
   hash=$(printf '%s' "$TEST_PROJ" | sha256sum); hash=${hash:0:20}
@@ -240,26 +285,26 @@ codex_fixture() {
   mkdir "$PROJ_ROOT/second"
   git -C "$PROJ_ROOT/second" init -q
   cd "$PROJ_ROOT/second"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" != *"$BOX_C_STATE_ROOT/$hash/codex-home"* ]]
   [[ "$output" != *--env\ OPENAI_API_KEY* ]]
 }
 
 @test "Codex protects both root spellings and rejects conflicts before mutation" {
-  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
+  _stub_dryrun_bundle
   codex_fixture
   export BOX_C_STATE_DIR="$TEST_TMP/legacy-root"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -ne 0 ]
   [ ! -e "$BOX_C_STATE_ROOT" ]
   [ ! -e "$BOX_C_STATE_DIR" ]
   unset BOX_C_STATE_ROOT
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"$BOX_C_STATE_DIR/"*codex-home* ]]
   export BOX_C_STATE_DIR="$TEST_PROJ/forbidden"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -ne 0 ]
   [ ! -e "$BOX_C_STATE_DIR" ]
 }
@@ -291,7 +336,7 @@ codex_fixture() {
 }
 
 @test "installed launchers work without bundle assets or the checkout" {
-  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
+  _make_stubbin
   codex_fixture
   unset BOX_C_CONFIG BOX_C_VERSION_FILE
   mkdir -p "$TEST_TMP/installed/lib" "$TEST_TMP/installed/harnesses"
@@ -308,6 +353,7 @@ codex_fixture() {
       [[ -n "$leaf" ]] || continue
       cp "$BUNDLE_DIR/$(box_artifact_field "$id" "$artifact" source)" "$cfg/$leaf"
     done
+    _patch_launcher_path "$TEST_TMP/installed/$(box_tool_field "$id" launcher)"
     run "$TEST_TMP/installed/$(box_tool_field "$id" launcher)" --dry-run --version
     [ "$status" -eq 0 ]
     [[ "$output" == *--runtime=runsc* ]]
@@ -369,6 +415,14 @@ codex_fixture() {
   tar -czf "$TEST_TMP/package.tar.gz" -C "$TEST_TMP/archive" bin
   fixture_digest=$(sha256sum "$TEST_TMP/package.tar.gz"); fixture_digest=${fixture_digest%% *}
   # Mock only transport; the real resolver must hash and inventory the bytes.
+  box_fetch_verify() {
+    # Driver-owned helper (update-pins.sh), unreachable via standalone
+    # adapter sourcing: mirror its contract (curl transport + real hash)
+    # so the companion/corruption assertions below stay meaningful.
+    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --connect-timeout 15 --max-time 600 -o "$2" -- "$1" || return 1
+    local computed; computed=$(sha256sum -- "$2"); computed=${computed%% *}
+    printf '%s' "$computed"
+  }
   assert_url_safe_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
   fetch_url() {
     jq -n --arg digest "sha256:$fixture_digest" '{tag_name:"rust-v9.9.9",prerelease:false,draft:false,assets:[

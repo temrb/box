@@ -32,10 +32,12 @@ launcher="$script_dir/box-m"
 [[ -x "$launcher" ]] || { printf '%s: missing sibling launcher: %s\n' "$BOX_TOOL" "$launcher" >&2; exit 1; }
 # shellcheck source=lib/preflight.sh
 source "$script_dir/lib/preflight.sh"
+# shellcheck source=lib/tools.sh
+source "$script_dir/lib/tools.sh"
 # shellcheck source=lib/launcher.sh
 source "$script_dir/lib/launcher.sh"
 # shellcheck source=harnesses/muse/native.sh
-source "$script_dir/harnesses/muse/native.sh"
+source "$script_dir/$(box_tool_field muse native_helper)"
 
 usage() {
   cat <<'EOF'

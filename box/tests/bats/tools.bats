@@ -16,7 +16,7 @@ load helpers
       # A model or forwarding set may intentionally be absent in any tool.
       # `run` pins the lookup status: a bare $(...) would mask a die.
       case "$field" in
-        forward_keys|install_adapter)
+        forward_keys|install_adapter|native_helper)
           run box_tool_field "$id" "$field"
           [ "$status" -eq 0 ] || { echo "missing field: $id/$field"; return 1; }
           continue ;;
@@ -72,7 +72,7 @@ load helpers
   [ "$(box_tool_field muse dockerfile_target)" = "muse" ]
   [ "$(box_tool_field muse version_format)" = "sha-pinned" ]
   [ "$(jq -r .model "$BUNDLE_DIR/harnesses/muse/config/settings.json")" = "muse-spark-1.3" ]
-  [ "$(jq -r .api.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" = "https://api.meta.ai/v1" ]
+  [ "$(jq -r .endpoint_transport.base_url "$BUNDLE_DIR/harnesses/muse/config/settings.json")" = "https://api.meta.ai/v1" ]
   [ "$(box_tool_field muse probe_hosts)" = "auth.meta.com api.meta.ai" ]
   [ "$(box_tool_field muse forward_keys)" = "MUSE_CODE_API_KEY" ]
   [ "$(box_tool_field muse pin_keys)" = "MUSE_VERSION MUSE_SHA256_AMD64 MUSE_SHA256_ARM64" ]

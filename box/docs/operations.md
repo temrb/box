@@ -11,8 +11,10 @@ instructions; verify `docker version`, `docker info`, and `runsc --version`.
 Rootless/userns remapping and macOS hosts are not covered by this mapping design.
 Native ARM64 runtime support remains unaccepted until tested on that architecture.
 
-Host tools: Bash, coreutils, findutils, util-linux (`flock`), Git, jq, curl, and Python 3.11+ for TOML
-consumers. JSON launchers retain their existing prerequisites; they do not load
+Host tools: Bash, coreutils, findutils, util-linux (`flock`), jq, curl, and Python 3.11+ for TOML
+consumers. Git is optional but recommended (repository-root discovery, identity
+inference); without it, launch from the project root or pass `--project-root`.
+JSON launchers retain their existing prerequisites; they do not load
 Python during launch. Static verification also requires ShellCheck and Bats.
 On Debian install validation packages with the package manager; verify Python
 with `python3 -c 'import tomllib'`. The root GitHub workflow installs these tools
@@ -93,7 +95,9 @@ containing state/config/credentials. The nearest Git root (or explicit
 `--project-root`) mounts at `/workspace`; the client starts in the launch
 subdirectory. External Git worktrees fail preflight. Symlink aliases of a
 launch directory use the same physical-path hash; moves
-and UID/GID changes create new volume/home identities.
+and UID/GID changes create new volume/home identities. Link-heavy trees
+(for example JavaScript `node_modules/.bin`) may exceed the 500-symlink
+preflight scan cap; truncation warns and continues (see architecture §7).
 
 ```bash
 box-c --dry-run
@@ -259,7 +263,12 @@ Run from any repository subdirectory. The nearest Git root is mounted and the
 client starts in the requested subdirectory. For a non-Git tree use
 `box-m --project-root /path/to/tree` (also supported by `box-o` and `box-c`);
 the root must contain the physical launch directory. Put launcher flags before
-`--shell`. State remains keyed to the launch directory.
+`--shell`. State is keyed to the workspace root: every subdirectory of one
+project shares a single volume/home. Subdirectory-keyed volumes/homes from
+earlier releases are orphaned by the rekey (same
+`<prefix>-u<uid>-g<gid>-<hash>` shape, subdirectory hash); inventory `docker
+volume ls`, validate the new root-keyed state, then remove the orphans. No
+auto-migration is performed.
 
 Edit installed defaults, or refresh them with setup after changing checkout
 templates. Every subsequent launch uses the current defaults, including existing

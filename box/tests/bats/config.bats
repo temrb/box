@@ -119,30 +119,27 @@ load helpers
   src="$TEST_TMP/enforce-seed.json"
   cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$src"
   dest="$TEST_TMP/enforce-dest.json"
-  jq '.approval_mode = "never" | .approval_judge = false
-      | .telemetry.enabled = true | .api.base_url = "https://evil.example"
+  jq '.telemetry.enabled = true | .endpoint_transport.base_url = "https://evil.example"
       | .model = "user-model" | .reasoning_effort = "low"
       | .user_note = "keep-me" | .telemetry.extra = "keep-too"' \
     -- "$src" >"$dest"
   box_enforce_safe_settings "$src" "$dest"
-  [ "$(jq -r '.approval_mode' -- "$dest")" = "on-request" ]
-  [ "$(jq -r '.approval_judge' -- "$dest")" = "true" ]
   [ "$(jq -r '.telemetry.enabled' -- "$dest")" = "false" ]
-  [ "$(jq -r '.api.base_url' -- "$dest")" = "https://api.meta.ai/v1" ]
+  [ "$(jq -r '.endpoint_transport.base_url' -- "$dest")" = "https://api.meta.ai/v1" ]
   [ "$(jq -r '.model' -- "$dest")" = "user-model" ]
   [ "$(jq -r '.reasoning_effort' -- "$dest")" = "low" ]
   [ "$(jq -r '.user_note' -- "$dest")" = "keep-me" ]
   [ "$(jq -r '.telemetry.extra' -- "$dest")" = "keep-too" ]
 }
 
-@test "enforce-settings replaces non-object telemetry/api blocks" {
+@test "enforce-settings replaces non-object telemetry/endpoint_transport blocks" {
   src="$TEST_TMP/enforce-seed2.json"
   cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$src"
   dest="$TEST_TMP/enforce-dest2.json"
-  jq '.telemetry = false | .api = "wiped"' -- "$src" >"$dest"
+  jq '.telemetry = false | .endpoint_transport = "wiped"' -- "$src" >"$dest"
   box_enforce_safe_settings "$src" "$dest"
   [ "$(jq -r '.telemetry.enabled' -- "$dest")" = "false" ]
-  [ "$(jq -r '.api.base_url' -- "$dest")" = "https://api.meta.ai/v1" ]
+  [ "$(jq -r '.endpoint_transport.base_url' -- "$dest")" = "https://api.meta.ai/v1" ]
 }
 
 @test "enforce-settings is a no-op when compliant" {
@@ -188,123 +185,6 @@ load helpers
   run box_enforce_safe_settings "$src" "$dest"
   [ "$status" -ne 0 ]
   [ "$(cat -- "$dest")" = "not-json" ]
-}
-
-@test "theme-sync fills missing keys, existing sandbox values win" {
-  host="$TEST_TMP/theme-host.json"
-  printf '{"tui":{"theme":"dracula","color_depth":"truecolor","terminal_background":"dark","verbose_output":true}}\n' >"$host"
-  dest="$TEST_TMP/theme-dest.json"
-  jq -n '{"model":"user-model","approval_mode":"on-request","tui":{"theme":"monokai","verbose_output":false}}' >"$dest"
-  box_sync_host_tui_theme "$host" "$dest"
-  [ "$(jq -r '.tui.theme' -- "$dest")" = "monokai" ]
-  [ "$(jq -r '.tui.color_depth' -- "$dest")" = "truecolor" ]
-  [ "$(jq -r '.tui.terminal_background' -- "$dest")" = "dark" ]
-  [ "$(jq -r '.tui.verbose_output' -- "$dest")" = "false" ]
-  [ "$(jq -r '.model' -- "$dest")" = "user-model" ]
-  [ "$(jq -r '.approval_mode' -- "$dest")" = "on-request" ]
-}
-
-@test "theme-sync fills all three keys into a themeless file" {
-  host="$TEST_TMP/theme-host2.json"
-  printf '{"tui":{"theme":"dracula","color_depth":"256","terminal_background":"light"}}\n' >"$host"
-  dest="$TEST_TMP/theme-dest2.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  box_sync_host_tui_theme "$host" "$dest"
-  [ "$(jq -r '.tui.theme' -- "$dest")" = "dracula" ]
-  [ "$(jq -r '.tui.color_depth' -- "$dest")" = "256" ]
-  [ "$(jq -r '.tui.terminal_background' -- "$dest")" = "light" ]
-  [ "$(jq -r '.model' -- "$dest")" = "$(jq -r .model "$BUNDLE_DIR/harnesses/muse/config/settings.json")" ]
-}
-
-@test "theme-sync is a silent no-op when the host file is missing" {
-  dest="$TEST_TMP/theme-dest3.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  before=$(cat -- "$dest")
-  run box_sync_host_tui_theme "$TEST_TMP/no-such-host.json" "$dest"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-  [ "$(cat -- "$dest")" = "$before" ]
-}
-
-@test "theme-sync is a no-op when the host carries no theme keys" {
-  host="$TEST_TMP/theme-host4.json"
-  printf '{"tui":{"verbose_output":true}}\n' >"$host"
-  dest="$TEST_TMP/theme-dest4.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  before=$(stat -c %Y -- "$dest")
-  sleep 1
-  run box_sync_host_tui_theme "$host" "$dest"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-  after=$(stat -c %Y -- "$dest")
-  [ "$before" = "$after" ]
-  cmp -s -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-}
-
-@test "theme-sync warns and continues on invalid host JSON" {
-  host="$TEST_TMP/theme-host5.json"
-  printf 'not-json\n' >"$host"
-  dest="$TEST_TMP/theme-dest5.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  before=$(cat -- "$dest")
-  run box_sync_host_tui_theme "$host" "$dest"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING"* ]]
-  [[ "$output" == *"theme sync"* ]]
-  [ "$(cat -- "$dest")" = "$before" ]
-}
-
-@test "theme-sync treats non-object tui blocks as empty" {
-  host="$TEST_TMP/theme-host6.json"
-  printf '{"tui":false}\n' >"$host"
-  dest="$TEST_TMP/theme-dest6.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  run box_sync_host_tui_theme "$host" "$dest"
-  [ "$status" -eq 0 ]
-  cmp -s -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  printf '{"tui":{"theme":"dracula"}}\n' >"$host"
-  jq '.tui = "wiped"' -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" >"$dest"
-  box_sync_host_tui_theme "$host" "$dest"
-  [ "$(jq -r '.tui.theme' -- "$dest")" = "dracula" ]
-}
-
-@test "theme-sync follows a host symlink but refuses a symlink dest" {
-  real="$TEST_TMP/theme-host-real.json"
-  printf '{"tui":{"theme":"dracula"}}\n' >"$real"
-  host="$TEST_TMP/theme-host-link.json"
-  ln -s "$real" "$host"
-  dest="$TEST_TMP/theme-dest7.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  box_sync_host_tui_theme "$host" "$dest"
-  [ "$(jq -r '.tui.theme' -- "$dest")" = "dracula" ]
-  ln -s "$TEST_TMP/theme-elsewhere.json" "$TEST_TMP/theme-dest-link.json"
-  run box_sync_host_tui_theme "$real" "$TEST_TMP/theme-dest-link.json"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"symlink"* ]]
-}
-
-@test "theme-sync fails closed without jq (existing host file)" {
-  # Twin of the enforce-settings jq test: the host file must exist to reach
-  # the jq check (a missing host file is a silent no-op before it).
-  host="$TEST_TMP/theme-host-jq.json"
-  printf '{"tui":{"theme":"dracula"}}\n' >"$host"
-  dest="$TEST_TMP/theme-dest-jq.json"
-  cp -- "$BUNDLE_DIR/harnesses/muse/config/settings.json" "$dest"
-  PATH=/nonexistent run box_sync_host_tui_theme "$host" "$dest"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"jq is required"* ]]
-}
-
-@test "seed-config reseeds an empty dest (retired bind-quirk repair)" {
-  src="$TEST_TMP/seed-src-empty.json"
-  printf '{"model":"seed"}\n' >"$src"
-  destdir="$TEST_TMP/persist-empty"
-  mkdir -p -- "$destdir"
-  : >"$destdir/settings.json"
-  [ ! -s "$destdir/settings.json" ]
-  box_muse_seed_config "$src" "$destdir/settings.json"
-  cmp -s -- "$src" "$destdir/settings.json"
-  [ -s "$destdir/settings.json" ]
 }
 
 @test "write-if-changed is atomic and preserves mode" {

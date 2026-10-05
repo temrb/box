@@ -50,7 +50,8 @@ needed to launch. Source generators/updaters/builds still use the bundle.
 
 Template refresh backs up a differing predecessor to one `.bak`. Installed
 pins survive setup reruns. Seed-if-absent preserves even empty live TOML;
-Muse retains its explicit legacy-empty JSON repair. The single managed-image
+Muse settings are generated per launch from live defaults (no seed repair).
+The single managed-image
 artifact is the Codex requirements policy (root-owned image file, image rebuild
 required). See the individual
 [harness guides](harnesses.md) for native paths and preference behavior.

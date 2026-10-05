@@ -239,18 +239,27 @@ box_preflight_symlinks() {
 # can contain a linked worktree even when the root itself has no .git.
 # Unset GIT_* overrides first: an exported GIT_DIR/WORK_TREE/COMMON_DIR/
 # CEILING/INDEX_FILE would otherwise redirect rev-parse outside the project
-# and poison the worktree check.
+# and poison the worktree check. Limitation: a --project-root pointed at a
+# submodule fails closed here (its gitdir lives under the superproject);
+# use a standalone clone for submodule projects.
+# Run git with all GIT_* environment overrides unset (an exported
+# GIT_DIR/WORK_TREE/... would otherwise redirect repository discovery).
+# Usage: box_sanitized_git <git args...>
+box_sanitized_git() (
+  local git_var
+  while IFS= read -r git_var; do unset "$git_var"; done < <(compgen -v GIT_)
+  git "$@"
+)
 # Reads global: project. No arguments.
 box_preflight_git() (
-  local gitdir common_raw common git_var metadata repository
+  local gitdir common_raw common metadata repository
   set -o pipefail
   find "$project" -xdev -name .git -print0 -prune |
   while IFS= read -r -d '' metadata; do
     repository=${metadata%/.git}
-    while IFS= read -r git_var; do unset "$git_var"; done < <(compgen -v GIT_)
-    gitdir=$(git -C "$repository" -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
+    gitdir=$(box_sanitized_git -C "$repository" -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
     gitdir=$(box_realpath -m -- "$gitdir") || die 'Cannot canonicalize Git dir.'
-    common_raw=$(git -C "$repository" -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
+    common_raw=$(box_sanitized_git -C "$repository" -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
     case "$common_raw" in /*) common=$(box_realpath -m -- "$common_raw") ;; *) common=$(box_realpath -m -- "$repository/$common_raw") ;; esac \
       || die 'Cannot canonicalize Git common dir.'
     case "$gitdir/" in "$project/"*) ;; *) die 'Use a standalone clone: this worktree has external Git metadata.';; esac

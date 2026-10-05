@@ -17,6 +17,20 @@ load helpers
   [[ "$output" == *"clean"* ]]
 }
 
+@test "verify-static bats set is daemon-free (live tests are test-live only)" {
+  # Daemon-gated tests (docker info / Engine reachability) must live in
+  # tests/bats-live/ under `make test-live`, never in tests/bats/, so
+  # verify-static and CI need no daemon.
+  run grep -rln --exclude=makefile.bats 'docker info\|Docker Engine unavailable\|(live daemon)' "$BUNDLE_DIR/tests/bats/"
+  [ "$status" -ne 0 ] || { echo "daemon-gated test in tests/bats/: $output"; return 1; }
+  run make -C "$BUNDLE_DIR" -n test-live
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tests/bats-live"* ]]
+  run make -C "$BUNDLE_DIR" -n verify-static
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"bats-live"* ]]
+}
+
 @test "make install is gone (renamed to setup)" {
   run make -C "$BUNDLE_DIR" -n install
   [ "$status" -ne 0 ]
@@ -119,6 +133,15 @@ load helpers
   [ "$status" -eq 0 ]
   [[ "$output" == *check-pins.sh* && "$output" == *gen-pins.sh* && "$output" == *gen-verify.sh* ]]
   [[ "$output" == *box_config_validate* ]]
+}
+
+@test "static verification byte-compiles the Python helpers" {
+  run make -C "$BUNDLE_DIR" -n verify-python
+  [ "$status" -eq 0 ]
+  [[ "$output" == *py_compile* && "$output" == *native-probe.py* && "$output" == *archive.py* ]]
+  run make -C "$BUNDLE_DIR" -n verify-static
+  [ "$status" -eq 0 ]
+  [[ "$output" == *verify-python* ]]
 }
 
 @test "static shell discovery covers newly added files without Makefile changes" {

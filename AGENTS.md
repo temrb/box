@@ -17,7 +17,7 @@ The real project lives in `box/` — start at `box/README.md`
 ## Test & verify
 
 - `make -C box test` — bats unit suite (`box/tests/bats/`); single file: `bats box/tests/bats/<name>.bats` (e.g. `tools.bats`, `pins.bats`).
-- `make -C box verify-static` — bash -n + JSON/TOML + generated checks + pin consistency + shellcheck + bats (fast-first; same checks CI runs in `.github/workflows/verify.yml`).
+- `make -C box verify-static` — bash -n + py_compile + JSON/TOML + generated checks + pin consistency + shellcheck + bats (fast-first; same checks CI runs in `.github/workflows/verify.yml`).
 - `make -C box verify-config` / `verify-shell` — configuration parsing / shell syntax only (TOML requires Python 3.11+ `tomllib`; shellcheck runs on generated harnesses, not `verify.d/` fragments).
 - `make -C box pins` — pin consistency (`pin-check` + `verify-pins-generated`).
 - `make -C box verify-generated` — assert `box/verify-*.sh` match `box/gen-verify.sh` output.

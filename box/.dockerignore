@@ -1,9 +1,13 @@
 # Only actual image inputs. Host adapters, state, credentials and docs excluded.
+# The opencode dir exception exists for traversal only; the COPY inputs are the
+# two explicit file rules below (a file under an excluded parent dir cannot be
+# re-included, so the parent exception must stay).
 **
 !Dockerfile
 !harnesses/
 !harnesses/opencode/
 !harnesses/opencode/entrypoint.sh
+!harnesses/opencode/archive.py
 !harnesses/codex/
 !harnesses/codex/policy/
 !harnesses/codex/policy/requirements.toml

@@ -30,7 +30,7 @@ See [permissions](https://opencode.ai/v2/docs/permissions),
 
 Setup refreshes the live host file at `~/.config/box-o/opencode.json`, with one
 `.bak` for a differing predecessor. It is mounted read-only under a writable
-volume parent at `/persist/config/opencode` with `XDG_CONFIG_HOME=/persist/config`; the parent persists for native resources. Saved global `cli.json` and `tui.json`
+volume parent at `/persist/config/opencode` with `XDG_CONFIG_HOME=/persist/config`; the parent persists for native resources. Saved global `cli.json`, `tui.json`, and `opencode.jsonc`
 preferences are backed up once as protected `.box-legacy` files and removed before
 each client run, under a volume lock. SQLite auth, sessions and approvals remain.
 `BOX_O_CONFIG` replaces the installed default immediately. Native discovery merges

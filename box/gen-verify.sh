@@ -20,6 +20,8 @@ source "$script_dir/lib/preflight.sh"
 source "$script_dir/lib/tools.sh"
 # shellcheck source=lib/pins.sh
 source "$script_dir/lib/pins.sh"
+# shellcheck source=lib/config-file.sh
+source "$script_dir/lib/config-file.sh"
 
 bundle_dir=$script_dir
 partials="$bundle_dir/verify.d"
@@ -34,7 +36,7 @@ elif [[ -n "${1:-}" ]]; then
 fi
 
 # Expected partials derive from the registry: 3 shared sections plus 5
-# per-tool sections (3 + 5 * tool_count: 13 for 2 tools, 18 for 3).
+# per-tool sections (3 + 5 * tool_count: 13 for 2 tools, 18 for 3; legacy arithmetic).
 partials_expected=(verify.d/10-workspace.sh verify.d/20-toolchain.sh verify.d/50-containment.sh)
 for _gen_id in $box_tool_ids; do
   for _gen_sec in 00-header 30-network 40-readiness 60-probe 99-footer; do
@@ -58,7 +60,7 @@ gen_one() {
   [[ -n "$tool" && -n "$out" ]] || die 'Internal error: missing generator arguments.'
   box_require_tool "$tool"
   local tmp prev_return_trap prev_exit_trap
-  local _tok_vkey _tok_tok _tok_val _tok_pat _tok_esc
+  local _tok_vkey _tok_tok _tok_val _tok_pat _tok_esc _tok_launcher _tok_display
   prev_return_trap=$(trap -p RETURN || true)
   prev_exit_trap=$(trap -p EXIT || true)
   tmp=$(box_mktemp_file gen-verify) || die 'Cannot create temp file.'
@@ -66,6 +68,8 @@ gen_one() {
   # function (RETURN alone is skipped on exit). Caller traps are saved above
   # and restored below so no stale trap (or stale local $tmp reference)
   # persists past the return and no caller EXIT trap is cleared.
+  # Bespoke save/restore stays local: trap semantics plus bats subshell
+  # caveats make a generic helper riskier than this accepted pattern.
   trap 'rm -f -- "$tmp"' RETURN EXIT
   cat -- \
     "$bundle_dir/harnesses/$tool/verify.d/00-header-$tool.sh" \
@@ -83,7 +87,7 @@ gen_one() {
   # closed here) and no @@ token may survive substitution (a typo'd key fails
   # closed too). Runs before --check/compare in both modes, so --check still
   # fails on stale or hand-edited outputs.
-  _tok_vkey=$(box_tool_field "$tool" pin_keys); _tok_vkey=${_tok_vkey%% *}
+  _tok_vkey=$(box_version_key "$tool")
   _tok_tok="@@${_tok_vkey}@@"
   grep -Fq -- "$_tok_tok" "$tmp" \
     || die "verify.d/40-readiness-$tool.sh lacks its ${_tok_tok} token."
@@ -92,17 +96,23 @@ gen_one() {
   _tok_pat=$(printf '%s' "$_tok_tok" | sed -e 's/[][\\.^$*|]/\\&/g')
   _tok_esc=$(printf '%s' "$_tok_val" | sed -e 's/[\\&|]/\\&/g')
   sed -i "s|$_tok_pat|$_tok_esc|g" -- "$tmp" || die "Cannot substitute ${_tok_tok} in verify-$tool.sh."
+  # Header/footer tokens (same mechanism): every tool-specific string in the
+  # 00/99 partials derives from registry data, so copy-paste across the three
+  # headers cannot rot the usage/probe/label strings again.
+  _tok_launcher=$(box_tool_field "$tool" launcher)
+  _tok_display=$(box_tool_field "$tool" verify_label)
+  [[ "$_tok_display" =~ ^[A-Z][A-Z\ ]*$ ]] || die "Invalid verify label: $tool"
+  sed -i -e "s|@@TOOL@@|$tool|g" -e "s|@@LAUNCHER@@|$_tok_launcher|g" \
+    -e "s|@@PROBE_VAR@@|_${tool}_probe|g" -e "s|@@DISPLAY@@|$_tok_display|g" -- "$tmp" \
+    || die "Cannot substitute header tokens in verify-$tool.sh."
   local artifact artifact_src artifact_format artifact_json artifact_token
   for artifact in $(box_tool_field "$tool" artifacts); do
     artifact_src="$bundle_dir/$(box_artifact_field "$tool" "$artifact" source)"
     artifact_format=$(box_artifact_field "$tool" "$artifact" format)
     artifact_token="@@ARTIFACT_${artifact^^}@@"
     grep -Fq "$artifact_token" "$tmp" || die "Missing verification consumer for $tool/$artifact."
-    if [[ "$artifact_format" == json ]]; then
-      artifact_json=$(jq -c . "$artifact_src") || die 'Cannot read artifact JSON.'
-    else
-      artifact_json=$(python3 -I -c 'import sys,tomllib,json; print(json.dumps(tomllib.load(open(sys.argv[1], "rb")),separators=(",",":")))' "$artifact_src") || die 'Cannot read artifact TOML.'
-    fi
+    artifact_json=$(box_config_canonical_json "$artifact_src" "$artifact_format") \
+      || die "Cannot read artifact ${artifact_format^^}."
     artifact_json=$(printf '%q' "$artifact_json")
     _tok_esc=$(printf '%s' "$artifact_json" | sed -e 's/[\\&|]/\\&/g')
     sed -i "s|$artifact_token|$_tok_esc|g" -- "$tmp"
@@ -114,6 +124,18 @@ import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 p.write_text(p.read_text().replace("@@NATIVE_PROBE@@", pathlib.Path(sys.argv[2]).read_text()))
 PYPROBE
+  fi
+  if grep -Fq '@@ENFORCED_JQ@@' "$tmp"; then
+    [[ -f "$bundle_dir/harnesses/$tool/native.sh" ]] || die 'Missing enforced-keys consumer.'
+    # source runs in this shell, so it would trip the RETURN cleanup trap
+    # and delete $tmp: drop the trap across the source and re-arm it.
+    trap - RETURN EXIT
+    # shellcheck disable=SC1090 # fixed validated native helper path
+    source "$bundle_dir/harnesses/$tool/native.sh"
+    trap 'rm -f -- "$tmp"' RETURN EXIT
+    [[ -n "${box_muse_enforced_jq:-}" ]] || die 'Missing enforced-keys filter.'
+    _tok_esc=$(printf '%s' "$box_muse_enforced_jq" | sed -e 's/[\\&|]/\\&/g')
+    sed -i "s|@@ENFORCED_JQ@@|$_tok_esc|g" -- "$tmp" || die 'Cannot substitute @@ENFORCED_JQ@@.'
   fi
   if grep -Eq '@@[A-Z_]+@@' -- "$tmp"; then
     die "Unresolved placeholder token remains in verify-$tool.sh output."

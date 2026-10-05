@@ -97,6 +97,17 @@ box_print_pin() {
   die "Internal error: unknown pin name: $name"
 }
 
+# First pin key is the version pin (position-0 convention shared by tags,
+# labels, and generator tokens). Single home so position drift fails here
+# instead of silently in every slicer.
+# Usage: box_version_key <tool-id>
+box_version_key() {
+  box_require_tool "${1:-}"
+  local keys
+  keys=$(box_tool_field "$1" pin_keys)
+  printf '%s' "${keys%% *}"
+}
+
 # Single Dockerfile base-digest extractor (one parser for check-pins.sh +
 # gen-pins.sh --check).
 # Prints the single `sha256:<hex>` digest and fails closed on zero or >1.

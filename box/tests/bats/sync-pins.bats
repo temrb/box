@@ -131,11 +131,33 @@ unchanged() {
 }
 
 @test "updater uses shared validated sync after build and skips uninstalled harness" {
-  copy="$TEST_TMP/bundle"
-  cp -r "$BUNDLE_DIR" "$copy"
-  # Stub only image build and Docker transport; keep real sync and assertions.
-  cat >> "$copy/lib/build.sh" <<'STUB'
-box_build_image() { mkdir -p "$HOME/.config/box-o/docker-cli"; printf 'fixture build\n'; }
+  # Loop over every registry tool: BOX_UPDATE_* seeds bypass the per-tool
+  # resolvers (channel/manifest vs archive.py vs tar-listing), so the fetch
+  # differences are out of scope here and the shared build+sync path under
+  # test is identical for each tool. The docker stub is parameterized by
+  # BOX_TEST_SYNC_ID; seeds, versions, and paths derive from the registry.
+  for id in $box_tool_ids; do
+    box_require_tool "$id"
+    cfg="$HOME/.config/$(box_tool_field "$id" config_dir)"
+    vf=$(box_tool_field "$id" version_file)
+    dest="$cfg/$vf"
+    vsource=$(box_tool_field "$id" version_source)
+    read -r -a keys <<<"$(box_tool_field "$id" pin_keys)"
+    vkey=${keys[0]} akey=${keys[1]} rkey=${keys[2]}
+    prefix=${vkey%_VERSION}
+    cur=$(box_print_pin "$BUNDLE_DIR" "$vkey")
+    if [[ "$cur" == *-* ]]; then syn1=9.9.9-R999.9; syn2=8.8.8-R888.8; else syn1=9.9.9; syn2=8.8.8; fi
+    if [[ "$cur" == "$syn1" || "$cur" == "$syn2" ]]; then
+      if [[ "$cur" == *-* ]]; then syn1=7.7.7-R777.7; syn2=6.6.6-R666.6; else syn1=7.7.7; syn2=6.6.6; fi
+    fi
+    mkdir -p -- "$cfg"
+    printf 'OBSOLETE=npm\n' >"$dest"
+    copy="$TEST_TMP/bundle-$id"
+    rm -rf -- "$copy"
+    cp -r "$BUNDLE_DIR" "$copy"
+    # Stub only image build and Docker transport; keep real sync and assertions.
+    cat >>"$copy/lib/build.sh" <<'STUB'
+box_build_image() { mkdir -p "$HOME/.config/$(box_tool_field "${1:?}" config_dir)/docker-cli"; printf 'fixture build\n'; }
 box_docker_cli() { docker_cmd=(fixture_docker); }
 fixture_docker() {
   local pair first=1 result=''
@@ -146,7 +168,7 @@ fixture_docker() {
   if [[ "$4" == *Config.User* ]]; then
     printf '%s:%s|%s\n' "$host_uid" "$host_gid" "$box_file_version"
   else
-    for pair in $(box_tool_field opencode label_pins); do
+    for pair in $(box_tool_field "${BOX_TEST_SYNC_ID:?}" label_pins); do
       if ((first)); then first=0; continue; fi
       result+="${result:+|}${box_file_pin[${pair%%:*}]}"
     done
@@ -154,17 +176,28 @@ fixture_docker() {
   fi
 }
 STUB
-  export BOX_UPDATE_OPENCODE_VERSION=2.0.999
-  export BOX_UPDATE_OPENCODE_SHA256_AMD64=$(box_print_pin "$BUNDLE_DIR" OPENCODE_SHA256_AMD64)
-  export BOX_UPDATE_OPENCODE_SHA256_ARM64=$(box_print_pin "$BUNDLE_DIR" OPENCODE_SHA256_ARM64)
-  run bash "$copy/update-pins.sh" --only opencode
-  [ "$status" -eq 0 ]; [[ "$output" == *'fixture build'* ]]
-  cmp "$copy/harnesses/opencode/version-opencode.env" "$dest"
-  rm -rf "$cfg"
-  export BOX_UPDATE_OPENCODE_VERSION=2.0.998
-  run bash "$copy/update-pins.sh" --only opencode
-  [ "$status" -eq 0 ]; [[ "$output" == *'skipping installed-pin sync'* ]]
-  [ ! -e "$dest" ]
+    unset BOX_UPDATE_MUSE_VERSION BOX_UPDATE_MUSE_SHA256_AMD64 BOX_UPDATE_MUSE_SHA256_ARM64
+    unset BOX_UPDATE_OPENCODE_VERSION BOX_UPDATE_OPENCODE_SHA256_AMD64 BOX_UPDATE_OPENCODE_SHA256_ARM64
+    unset BOX_UPDATE_CODEX_VERSION BOX_UPDATE_CODEX_SHA256_AMD64 BOX_UPDATE_CODEX_SHA256_ARM64
+    export BOX_TEST_SYNC_ID="$id"
+    export "BOX_UPDATE_${prefix}_VERSION=$syn1"
+    export "BOX_UPDATE_${prefix}_SHA256_AMD64=$(box_print_pin "$BUNDLE_DIR" "$akey")"
+    export "BOX_UPDATE_${prefix}_SHA256_ARM64=$(box_print_pin "$BUNDLE_DIR" "$rkey")"
+    run bash "$copy/update-pins.sh" --only "$id"
+    [ "$status" -eq 0 ] || { echo "sync-phase failed for $id: $output"; return 1; }
+    [[ "$output" == *'fixture build'* ]] || { echo "no fixture build for $id"; return 1; }
+    cmp "$copy/$vsource" "$dest" || { echo "installed pins differ for $id"; return 1; }
+    rm -rf -- "$cfg"
+    export "BOX_UPDATE_${prefix}_VERSION=$syn2"
+    run bash "$copy/update-pins.sh" --only "$id"
+    [ "$status" -eq 0 ] || { echo "skip-phase failed for $id: $output"; return 1; }
+    [[ "$output" == *'skipping installed-pin sync'* ]] || { echo "no skip message for $id"; return 1; }
+    [ ! -e "$dest" ] || { echo "dest recreated for $id"; return 1; }
+  done
+  unset BOX_UPDATE_MUSE_VERSION BOX_UPDATE_MUSE_SHA256_AMD64 BOX_UPDATE_MUSE_SHA256_ARM64
+  unset BOX_UPDATE_OPENCODE_VERSION BOX_UPDATE_OPENCODE_SHA256_AMD64 BOX_UPDATE_OPENCODE_SHA256_ARM64
+  unset BOX_UPDATE_CODEX_VERSION BOX_UPDATE_CODEX_SHA256_AMD64 BOX_UPDATE_CODEX_SHA256_ARM64
+  unset BOX_TEST_SYNC_ID
 }
 
 @test "interrupted installed-pin validation preserves pins and removes staging" {
