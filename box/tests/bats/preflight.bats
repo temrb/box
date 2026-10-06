@@ -135,6 +135,28 @@ load helpers
   [[ "$output" == *"more than 500 symlinks"* ]]
 }
 
+@test "preflight symlink truncation succeeds when find inherits ignored SIGPIPE" {
+  # Long paths force multiple pipe writes; ignored SIGPIPE makes GNU find
+  # report a write error (status 1) if the collector closes its pipe early.
+  project="$TEST_PROJ/$(printf '%0200d' 0)"
+  mkdir -p -- "$project"
+  for i in $(seq 1 3000); do ln -s "target-$i" -- "$project/link-$i"; done
+  find() { (trap '' PIPE; command find "$@"); }
+  box_preflight_home
+  box_preflight_credentials
+  run box_preflight_symlinks
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"more than 500 symlinks"* ]]
+  [[ "$output" != *"Broken pipe"* ]]
+}
+
+@test "preflight symlink scan fails closed when find reports an inspection error" {
+  find() { printf '%s\n' "$project/link"; return 1; }
+  run box_preflight_symlinks
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot inspect project for symlinks"* ]]
+}
+
 @test "preflight rejects external git worktree metadata" {
   if ! command -v git >/dev/null; then skip "git not installed"; fi
   git init -q -- "$TEST_TMP/external" 2>/dev/null

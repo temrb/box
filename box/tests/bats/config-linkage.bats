@@ -445,13 +445,13 @@ PYINNER
 }
 
 @test "docs symlink cap matches lib/preflight.sh (no prose drift)" {
-  # The bounded scan caps at N links (head -n N+1 probes truncation); the §7
+  # The bounded scan caps at N links (sed retains N+1 to probe truncation); the §7
   # prose must name the same N (m-19 tripwire).
   cap=$(grep -Eo 'symlink_checked > [0-9]+' "$BUNDLE_DIR/lib/preflight.sh" | grep -Eo '[0-9]+' | head -n 1)
   [ -n "$cap" ]
   run grep -Fq -- "first $cap links" "$BUNDLE_DIR/docs/architecture.md"
   [ "$status" -eq 0 ] || { echo "architecture.md misses symlink cap: first $cap links"; return 1; }
-  run grep -Fq -- "head -n $((cap + 1))" "$BUNDLE_DIR/lib/preflight.sh"
+  run grep -Fq -- "sed -n '1,$((cap + 1))p'" "$BUNDLE_DIR/lib/preflight.sh"
   [ "$status" -eq 0 ]
 }
 

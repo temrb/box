@@ -193,19 +193,18 @@ box_preflight_ipc() {
 # container namespaces (not to host paths), so this is best-effort hygiene
 # against confusing host-side tooling — not a container-escape boundary.
 # The scan is capped so link-heavy trees (e.g. node_modules/.bin) stay
-# fast; truncation warns instead of failing. Exit 141 (SIGPIPE from
-# find|head on large trees under pipefail) is treated as truncation, not
-# as an inspection failure; other non-zero statuses still fail closed.
+# fast; truncation warns instead of failing. The collector drains find's
+# output while retaining only 501 entries, avoiding SIGPIPE/write errors
+# from an early pipe close. Inspection failures still fail closed.
 # Reads globals: project, box_physical_home, box_credential_targets.
 # No arguments.
 box_preflight_symlinks() {
-  local link target sens symlink_list symlink_checked symlink_rc
-  # find|head must run under pipefail so a find permission-denied cannot
-  # fail open as an empty list (head's status would mask it otherwise).
+  local link target sens symlink_list symlink_checked
+  # Keep reading after entry 501 so find can finish and report real errors.
+  # pipefail prevents permission-denied from failing open as an empty list.
   # pipefail is forced subshell-scoped: no global option to save/restore.
-  symlink_list=$(set -o pipefail; find "$project" -xdev -type l -print | head -n 501) || symlink_rc=$?
-  symlink_rc=${symlink_rc:-0}
-  ((symlink_rc == 0 || symlink_rc == 141)) || die 'Cannot inspect project for symlinks.'
+  symlink_list=$(set -o pipefail; find "$project" -xdev -type l -print | sed -n '1,501p') \
+    || die 'Cannot inspect project for symlinks.'
   symlink_checked=0
   while IFS= read -r link; do
     [[ -n "$link" ]] || continue
