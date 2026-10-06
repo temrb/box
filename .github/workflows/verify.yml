@@ -1,7 +1,8 @@
 # Phase 1 safety net: static checks + pin consistency + verify-harness sync +
-# bats unit suite. No daemon needed (launchers run under --dry-run only;
-# docker-dependent bats tests skip when no docker binary is present or no
-# daemon is reachable; live network tests create/remove real networks).
+# daemon-free bats unit suite (tests/bats/; launchers run under --dry-run
+# only, docker-dependent shape tests use offline stubs). Live-daemon tests
+# (real networks, probe containers, concurrent installs) live in
+# tests/bats-live/ under `make test-live`, which CI never runs.
 # CI calls make targets (never duplicated step bodies) so a new gate added
 # to verify-static runs here automatically (m-23).
 name: verify

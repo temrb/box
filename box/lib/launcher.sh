@@ -28,12 +28,14 @@ box_parse_launcher_args() {
   explicit_runsc=0
   dry_run=0
   shell_mode=0
+  project_root_arg=''
   launcher_rest=()
   while (($#)); do
     case "$1" in
       --docker-fallback) runtime_args=(--runtime=runc); fallback_requested=1; explicit_runsc=0; shift ;;
       --runsc) runtime_args=(--runtime=runsc); fallback_requested=0; explicit_runsc=1; shift ;;
       --dry-run) dry_run=1; shift ;;
+      --project-root) (($# >= 2)) || { printf '%s: --project-root requires PATH.\n' "$BOX_TOOL" >&2; exit 2; }; project_root_arg=$2; shift 2 ;;
       --shell) shell_mode=1; shift; break ;;
       --help|-h) usage; exit 0 ;;
       --) shift; break ;;
@@ -46,8 +48,8 @@ box_parse_launcher_args() {
     # passthrough). Deeper positions are left alone: shell/tool commands may
     # legitimately contain such strings (e.g. `opencode --dry-run`).
     case "${1:-}" in
-      --docker-fallback|--runsc|--dry-run)
-        die "Place launcher flags before --shell: '$1' after --shell would be passed to the shell." ;;
+      --docker-fallback|--runsc|--dry-run|--project-root)
+        { printf "%s: Place launcher flags before --shell: '%s' after --shell would be passed to the shell.\n" "$BOX_TOOL" "$1" >&2; exit 2; } ;;
     esac
   fi
   launcher_rest=("$@")
@@ -75,19 +77,42 @@ box_check_fallback() {
 box_project_identity() {
   local prefix=${1:-} hash_full box_now
   [[ -n "$prefix" ]] || die 'Internal error: missing tool prefix.'
-  project=$(pwd -P) || die 'Cannot resolve project directory.'
+  launch_directory=$(pwd -P) || die 'Cannot resolve launch directory.'
+  # Sanitize all Git environment controls before repository discovery.
+  workspace_root=$launch_directory
+  if [[ -n "${project_root_arg:-}" ]]; then
+    workspace_root=$(box_realpath -e -- "$project_root_arg") || die 'Invalid --project-root.'
+    [[ -d "$workspace_root" ]] || die '--project-root must be a directory.'
+  elif command -v git >/dev/null; then
+    workspace_root=$(box_sanitized_git -c safe.directory='*' rev-parse --show-toplevel 2>/dev/null) || workspace_root=$launch_directory
+    workspace_root=$(box_realpath -e -- "$workspace_root") || die 'Cannot resolve workspace root.'
+  fi
+  case "$launch_directory/" in "$workspace_root/"*) ;; *) die '--project-root must be an ancestor of the launch directory.';; esac
+  project=$workspace_root
+  # State identity (volumes, Codex homes) keys on the workspace root, not the
+  # launch subdirectory: every subdirectory of one project shares a single
+  # /persist. (Subdirectory-keyed state from earlier releases is orphaned by
+  # the rekey; see docs/operations.md for the one-time migration.)
+  state_identity=$project
+  working_directory=/workspace
+  [[ "$launch_directory" == "$workspace_root" ]] || working_directory+="/${launch_directory#"$workspace_root/"}"
+
   host_uid=$(id -u) || die 'Cannot determine UID.'
   host_gid=$(id -g) || die 'Cannot determine GID.'
-  box_preflight_project
+  (cd -- "$project" && box_preflight_project)
   # Split off sha256sum's "  -" trailer instead of slicing blindly.
-  hash_full=$(printf '%s' "$project" | sha256sum) \
+  hash_full=$(printf '%s' "$state_identity" | sha256sum) \
     || die 'Cannot hash project path.'
   hash_full=${hash_full%% *}
   [[ "$hash_full" =~ ^[0-9a-f]{64}$ ]] || die 'Cannot hash project path.'
   project_hash=${hash_full:0:20}
   volume="${prefix}-u${host_uid}-g${host_gid}-${project_hash}"
-  box_now=$(date +%s) || die 'Cannot generate container name.'
-  container="${prefix}-u${host_uid}-${RANDOM}${RANDOM}${RANDOM}-${box_now}"
+  if ((${dry_run:-0})); then
+    container="${prefix}-u${host_uid}-dry-run"
+  else
+    box_now=$(date +%s) || die 'Cannot generate container name.'
+    container="${prefix}-u${host_uid}-${RANDOM}${RANDOM}${RANDOM}-${box_now}"
+  fi
   case "$container" in *[!A-Za-z0-9_.-]*) die 'Internal error: invalid container name.';; esac
 }
 
@@ -126,7 +151,7 @@ box_ensure_persistent_config_dir() {
 }
 
 # Exclusive hard-link publication: concurrent launchers cannot replace a winner.
-# Existing empty files are user state. Legacy empty JSON reseeding belongs to Muse.
+# Existing files (even empty ones) are user state and preserved as-is.
 box_seed_writable_config() (
   local src=${1:-} dest=${2:-} tmp
   [[ ! -L "$src" && ! -L "$dest" ]] || die 'Refusing symlink in seed-config paths.'
@@ -330,4 +355,97 @@ box_auto_runtime() {
 box_maybe_auto_runtime() {
   ((dry_run == 0)) && ((fallback_requested == 0)) && ((shell_mode == 0)) && ((explicit_runsc == 0)) || return 0
   box_auto_runtime "$@"
+}
+
+# Registry paths are ordered in native precedence order; do not merge native configs.
+# Collection is intentionally asymmetric: muse merges directory configs into
+# the launch snapshot, while codex/opencode collect-but-don't-merge (codex
+# still fail-closes on invalid TOML it never consumes).
+box_directory_configs() {
+  local id=$1 style dir file resolved path
+  local -a style_paths=()
+  directory_configs=()
+  for style in $(box_tool_field "$id" directory_configs); do
+    IFS=: read -r -a style_paths <<< "$style"
+    dir=$workspace_root
+    while :; do
+      for path in "${style_paths[@]}"; do
+        file=$dir/$path
+        if [[ -e "$file" || -L "$file" ]]; then
+          resolved=$(box_realpath -e -- "$file") || die "Cannot resolve directory configuration: $file"
+          case "$resolved" in "$workspace_root/"*) ;; *) die "Directory configuration escapes workspace: $file";; esac
+          [[ -f "$resolved" && -r "$resolved" ]] || die "Unreadable directory configuration: $file"
+          if [[ "$(box_tool_field "$id" directory_parser)" != native ]]; then
+            (box_config_validate "$file") || die "Invalid directory configuration: $file"
+          fi
+          directory_configs+=("$file")
+        fi
+      done
+      [[ "$dir" == "$launch_directory" ]] && break
+      local rest=${launch_directory#"$dir/"}
+      dir+=/${rest%%/*}
+    done
+  done
+  if ((dry_run)); then
+    printf 'Workspace root: %s\nWorking directory: %s\nDefault source: %s\n' "$workspace_root" "$working_directory" "$config"
+    printf 'Directory configuration precedence: %s\n' "$(box_tool_field "$id" directory_configs)"
+    if ((${#directory_configs[@]})); then printf 'Directory configuration: %s\n' "${directory_configs[@]}"; fi
+  fi
+}
+
+box_backup_preferences() {
+  local file=$1
+  [[ -e "$file" ]] || return 0
+  [[ ! -L "$file" && -f "$file" ]] || die "Unsafe preference file: $file"
+  box_assert_owner_mode "$file" 'Legacy preferences' nowrite
+  [[ ! -L "$file.box-legacy" ]] || die "Redirected preference backup: $file.box-legacy"
+  if [[ ! -e "$file.box-legacy" ]]; then
+    (umask 077; cp -p -- "$file" "$file.box-legacy") || die "Cannot back up preferences: $file"
+    chmod 600 -- "$file.box-legacy"
+  else
+    [[ -f "$file.box-legacy" ]] || die "Invalid preference backup: $file.box-legacy"
+    box_assert_owner_mode "$file.box-legacy" 'Preference backup' creds
+  fi
+}
+
+# Shared launch head: fallback-check → identity → config → version → git → tag.
+# Adapters keep parse/set (a function cannot reset its caller's $@), native
+# state/auth/credentials/docker-cli, mounts, and the exec tail. Env override
+# names derive from the registry git_prefix; the user-facing API stays the
+# same literal names. state_prefix is the container/volume prefix: it matches
+# the network for muse/codex by convention, while opencode v2 diverges
+# (box-o-v2 isolates v2 state from v1) — hence a registry field, not a rule.
+# Order note: config validates before directory collection (codex previously
+# collected first; both fail closed, only double-fault precedence changed).
+# Requires lib/{preflight,tools,pins,run,build}.sh loaded (wrapper order).
+# Sets globals: tool_network, config, version_file, file_version, image (+identity globals).
+# Usage: box_launch_prologue <id>
+box_launch_prologue() {
+  local id=${1:-}
+  box_require_tool "$id"
+  local gpfx artifacts first_format cfg_var cfg_default vf_var vf_default img_var
+  gpfx=$(box_tool_field "$id" git_prefix)
+  # Check explicit runtime selection before the independent automatic DNS probe.
+  box_check_fallback "${gpfx}_ALLOW_FALLBACK"
+  tool_network=$(box_tool_field "$id" network)
+  box_project_identity "$(box_tool_field "$id" state_prefix)"
+  cfg_var="${gpfx}_CONFIG"
+  cfg_default="$HOME/.config/$(box_tool_field "$id" config_dir)/$(box_tool_field "$id" config_file)"
+  config=$(box_resolve_config "${!cfg_var:-$cfg_default}")
+  # shellcheck source=lib/config-file.sh
+  source "$script_dir/lib/config-file.sh"
+  artifacts=$(box_tool_field "$id" artifacts)
+  first_format=$(box_artifact_field "$id" "${artifacts%% *}" format)
+  box_config_validate "$config" "$first_format"
+  box_directory_configs "$id"
+  vf_var="${gpfx}_VERSION_FILE"
+  vf_default="$HOME/.config/$(box_tool_field "$id" config_dir)/$(box_tool_field "$id" version_file)"
+  version_file="${!vf_var:-$vf_default}"
+  # shellcheck disable=SC2046 # word-splitting registry pin_keys into allowlist args is intentional.
+  box_load_version_file "$version_file" "$(box_tool_field "$id" version_format)" $(box_tool_field "$id" pin_keys)
+  file_version=$box_file_version
+  # Shared per-field identity: selected prefix, other registered prefixes, then global Git.
+  box_git_identity "$gpfx"
+  img_var="${gpfx}_IMAGE"
+  image=${!img_var:-$(box_image_tag_for_version "$id" "$file_version" "$host_uid" "$host_gid")}
 }

@@ -2,15 +2,7 @@
 # shellcheck disable=SC2034,SC2154 # updater-owned pin map and fetch primitives
 box_harness_resolve() {
   local explicit=${1:-} version release arch asset digest url file computed listing companion
-  if [[ -n "${BOX_UPDATE_CODEX_VERSION:-}" ]]; then
-    [[ -z "$explicit" ]] || die 'Conflicting Codex pins: --codex and BOX_UPDATE_CODEX_VERSION.'
-    new_pin[CODEX_VERSION]=$BOX_UPDATE_CODEX_VERSION
-    new_pin[CODEX_SHA256_AMD64]=${BOX_UPDATE_CODEX_SHA256_AMD64:-}
-    new_pin[CODEX_SHA256_ARM64]=${BOX_UPDATE_CODEX_SHA256_ARM64:-}
-    [[ -n "${new_pin[CODEX_SHA256_AMD64]}" && -n "${new_pin[CODEX_SHA256_ARM64]}" ]] || die 'Partial Codex seed: set all three BOX_UPDATE_CODEX pins.'
-    return 0
-  fi
-  [[ -z "${BOX_UPDATE_CODEX_SHA256_AMD64:-}${BOX_UPDATE_CODEX_SHA256_ARM64:-}" ]] || die 'Partial Codex seed: set all three BOX_UPDATE_CODEX pins.'
+  if box_update_seed CODEX "$explicit" --codex Codex 'new_pin[CODEX_VERSION]' 'new_pin[CODEX_SHA256_AMD64]' 'new_pin[CODEX_SHA256_ARM64]'; then return 0; fi
   if [[ "$explicit" == "$CODEX_VERSION" ]]; then return 0; fi
   if [[ -n "$explicit" ]]; then
     assert_url_safe_version "$explicit" 'Codex version'
@@ -28,10 +20,7 @@ box_harness_resolve() {
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Invalid Codex asset digest.'
     url="https://github.com/openai/codex/releases/download/rust-v$version/$asset"
     file=$(box_mktemp_file codex-artifact) || die 'Cannot stage Codex artifact.'
-    if ! curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --connect-timeout 15 --max-time 600 -o "$file" -- "$url"; then
-      rm -f -- "$file"; die "Cannot download Codex asset: $asset"
-    fi
-    computed=$(sha256sum -- "$file"); computed=${computed%% *}
+    computed=$(box_fetch_verify "$url" "$file") || die "Cannot download Codex asset: $asset"
     if [[ "sha256:$computed" != "$digest" ]] || ! listing=$(tar -tzf "$file"); then
       rm -f -- "$file"; die "Corrupted/incomplete Codex asset: $asset"
     fi

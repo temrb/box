@@ -47,7 +47,7 @@ box_realpath() {
   fi
   command -v python3 >/dev/null 2>&1 \
     || die 'Cannot canonicalize path: realpath, readlink, and python3 are all missing.'
-  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path"
+  python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path"
 }
 
 # mktemp honoring TMPDIR (never hardcoded /tmp for non-secrets; secrets use
@@ -193,19 +193,18 @@ box_preflight_ipc() {
 # container namespaces (not to host paths), so this is best-effort hygiene
 # against confusing host-side tooling — not a container-escape boundary.
 # The scan is capped so link-heavy trees (e.g. node_modules/.bin) stay
-# fast; truncation warns instead of failing. Exit 141 (SIGPIPE from
-# find|head on large trees under pipefail) is treated as truncation, not
-# as an inspection failure; other non-zero statuses still fail closed.
+# fast; truncation warns instead of failing. The collector drains find's
+# output while retaining only 501 entries, avoiding SIGPIPE/write errors
+# from an early pipe close. Inspection failures still fail closed.
 # Reads globals: project, box_physical_home, box_credential_targets.
 # No arguments.
 box_preflight_symlinks() {
-  local link target sens symlink_list symlink_checked symlink_rc
-  # find|head must run under pipefail so a find permission-denied cannot
-  # fail open as an empty list (head's status would mask it otherwise).
+  local link target sens symlink_list symlink_checked
+  # Keep reading after entry 501 so find can finish and report real errors.
+  # pipefail prevents permission-denied from failing open as an empty list.
   # pipefail is forced subshell-scoped: no global option to save/restore.
-  symlink_list=$(set -o pipefail; find "$project" -xdev -type l -print | head -n 501) || symlink_rc=$?
-  symlink_rc=${symlink_rc:-0}
-  ((symlink_rc == 0 || symlink_rc == 141)) || die 'Cannot inspect project for symlinks.'
+  symlink_list=$(set -o pipefail; find "$project" -xdev -type l -print | sed -n '1,501p') \
+    || die 'Cannot inspect project for symlinks.'
   symlink_checked=0
   while IFS= read -r link; do
     [[ -n "$link" ]] || continue
@@ -235,26 +234,37 @@ box_preflight_symlinks() {
 # Git step: prevent external Git metadata escapes from linked worktrees.
 # Canonicalize both dirs with realpath -m so ../ and symlink escapes cannot
 # evade the under-$project check (rev-parse may return relative paths).
-# NOTE: this inspects .git in the current directory; the launchers always
-# run with CWD == $project, so that is the mounted directory. A
-# subdirectory run mounts only that subdirectory (see docs/operations.md §9).
+# Inspect the mounted root, including nested repositories. An explicit root
+# can contain a linked worktree even when the root itself has no .git.
 # Unset GIT_* overrides first: an exported GIT_DIR/WORK_TREE/COMMON_DIR/
 # CEILING/INDEX_FILE would otherwise redirect rev-parse outside the project
-# and poison the worktree check.
+# and poison the worktree check. Limitation: a --project-root pointed at a
+# submodule fails closed here (its gitdir lives under the superproject);
+# use a standalone clone for submodule projects.
+# Run git with all GIT_* environment overrides unset (an exported
+# GIT_DIR/WORK_TREE/... would otherwise redirect repository discovery).
+# Usage: box_sanitized_git <git args...>
+box_sanitized_git() (
+  local git_var
+  while IFS= read -r git_var; do unset "$git_var"; done < <(compgen -v GIT_)
+  git "$@"
+)
 # Reads global: project. No arguments.
-box_preflight_git() {
-  local gitdir common_raw common
-  if [[ -e .git || -L .git ]]; then
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CEILING_DIRECTORIES GIT_INDEX_FILE
-    gitdir=$(git -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
+box_preflight_git() (
+  local gitdir common_raw common metadata repository
+  set -o pipefail
+  find "$project" -xdev -name .git -print0 -prune |
+  while IFS= read -r -d '' metadata; do
+    repository=${metadata%/.git}
+    gitdir=$(box_sanitized_git -C "$repository" -c safe.directory='*' rev-parse --absolute-git-dir) || die 'Cannot resolve .git.'
     gitdir=$(box_realpath -m -- "$gitdir") || die 'Cannot canonicalize Git dir.'
-    common_raw=$(git -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
-    case "$common_raw" in /*) common=$(box_realpath -m -- "$common_raw") ;; *) common=$(box_realpath -m -- "$project/$common_raw") ;; esac \
+    common_raw=$(box_sanitized_git -C "$repository" -c safe.directory='*' rev-parse --git-common-dir) || die 'Cannot resolve Git common dir.'
+    case "$common_raw" in /*) common=$(box_realpath -m -- "$common_raw") ;; *) common=$(box_realpath -m -- "$repository/$common_raw") ;; esac \
       || die 'Cannot canonicalize Git common dir.'
     case "$gitdir/" in "$project/"*) ;; *) die 'Use a standalone clone: this worktree has external Git metadata.';; esac
     case "$common/" in "$project/"*) ;; *) die 'Use a standalone clone: this worktree shares external Git metadata.';; esac
-  fi
-}
+  done || die 'Cannot inspect project Git metadata.'
+)
 
 # Closed denylist + $HOME/credential-dir + IPC + symlink + git-worktree preflight.
 # Thin ordering wrapper over the per-concern steps above (each step is also

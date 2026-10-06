@@ -94,7 +94,7 @@ Explicit runtime selection and the fallback kill switch are preserved. Automatic
 DNS/startup failure may choose hardened runc with NOTICE/WARNING; shell and
 explicit runsc runs never auto-substitute. Cancellation now exits instead of
 starting fallback. Config precedence and native cache guards retain their
-existing rules. Muse shared settings/auth remain mutable; native permission
+existing rules. Muse shared auth/trust remain mutable; settings use read-only launch snapshots; native permission
 settings are not a universal prompting or exfiltration boundary.
 
 ## 3. Incident reassessment

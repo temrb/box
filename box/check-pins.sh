@@ -4,7 +4,7 @@
 # regex parsing), then asserts the single multi-target Dockerfile ARG names
 # exist, the Debian digest matches FROM ...@sha256:..., and the §4 pin table
 # in docs/architecture.md (between pin-table markers).
-# setup.sh and the Makefile thread --build-arg from lib/pins.sh (plus
+# lib/build.sh threads --build-arg from lib/pins.sh (plus
 # HOST_UID/HOST_GID from `id`), and all ARGs have no defaults so bare builds
 # fail closed.
 set -euo pipefail
@@ -93,18 +93,24 @@ if [[ -f "$dockerignore" ]]; then
   ! grep -Eq '^!Dockerfile\.(muse|opencode)([[:space:]]|$)' "$dockerignore" \
     || die '.dockerignore must not reference deleted Dockerfile.muse/Dockerfile.opencode'
   ! grep -Eq '^!lib/' "$dockerignore" \
-    || die '.dockerignore must not allowlist lib/ (dead: only entrypoint/policy inputs are COPYd)'
+    || die '.dockerignore must not allowlist lib/ (only entrypoint/archive/policy inputs are COPYd)'
   ! grep -Eq 'nodesource' "$dockerignore" \
     || die '.dockerignore must not reference deleted NodeSource key'
   ! grep -Eq '^!harnesses/opencode/policy/' "$dockerignore" \
     || die '.dockerignore must not reference deleted opencode policy'
+  while IFS= read -r _pins_copy; do
+    [[ -n "$_pins_copy" ]] || continue
+    grep -Eq "^!${_pins_copy}([[:space:]]|$)" "$dockerignore" \
+      || die ".dockerignore must explicitly allowlist COPY input: $_pins_copy"
+  done < <(grep -E '^[[:space:]]*COPY ' "$dockerfile" | grep -Eo 'harnesses/[^ ]+')
+  unset _pins_copy
 fi
 
 # --- build delegation is covered by box_assert_build_delegation above ---
 
 _pins_versions=""
 for _pins_id in $box_tool_ids; do
-  _pins_vkey=$(box_tool_field "$_pins_id" pin_keys); _pins_vkey=${_pins_vkey%% *}
+  _pins_vkey=$(box_version_key "$_pins_id")
   _pins_versions+="${_pins_versions:+, }$_pins_id ${!_pins_vkey}"
 done
 unset _pins_id _pins_vkey

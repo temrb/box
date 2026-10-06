@@ -135,6 +135,28 @@ load helpers
   [[ "$output" == *"more than 500 symlinks"* ]]
 }
 
+@test "preflight symlink truncation succeeds when find inherits ignored SIGPIPE" {
+  # Long paths force multiple pipe writes; ignored SIGPIPE makes GNU find
+  # report a write error (status 1) if the collector closes its pipe early.
+  project="$TEST_PROJ/$(printf '%0200d' 0)"
+  mkdir -p -- "$project"
+  for i in $(seq 1 3000); do ln -s "target-$i" -- "$project/link-$i"; done
+  find() { (trap '' PIPE; command find "$@"); }
+  box_preflight_home
+  box_preflight_credentials
+  run box_preflight_symlinks
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"more than 500 symlinks"* ]]
+  [[ "$output" != *"Broken pipe"* ]]
+}
+
+@test "preflight symlink scan fails closed when find reports an inspection error" {
+  find() { printf '%s\n' "$project/link"; return 1; }
+  run box_preflight_symlinks
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot inspect project for symlinks"* ]]
+}
+
 @test "preflight rejects external git worktree metadata" {
   if ! command -v git >/dev/null; then skip "git not installed"; fi
   git init -q -- "$TEST_TMP/external" 2>/dev/null
@@ -175,6 +197,20 @@ newline"
   project="$proj_with_nl"
   run box_preflight_project
   [ "$status" -ne 0 ]
+}
+
+@test "self-dir bootstrap copies keep the realpath-first fallback" {
+  # Accepted duplication (Phase 2 finding 12, bootstrap paradox): no
+  # helpers exist before the bootstrap runs, so lib/tools.sh pins the
+  # canonical snippet and every ship-code site copies it. Drift fails here.
+  local f failed=0
+  while IFS= read -r f; do
+    grep -q "realpath" "$f" || { echo "lost realpath-first fallback: ${f#$BUNDLE_DIR/}"; failed=1; }
+  done < <(grep -rln "readlink -f" "$BUNDLE_DIR/lib" "$BUNDLE_DIR/harnesses" \
+    "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o" "$BUNDLE_DIR/box-c" "$BUNDLE_DIR/box-m-login" \
+    "$BUNDLE_DIR/setup.sh" "$BUNDLE_DIR/gen-verify.sh" "$BUNDLE_DIR/gen-pins.sh" \
+    "$BUNDLE_DIR/check-pins.sh" "$BUNDLE_DIR/update-pins.sh")
+  [ "$failed" -eq 0 ]
 }
 
 @test "preflight unsets GIT_* overrides before the worktree check" {

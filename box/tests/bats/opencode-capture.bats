@@ -46,3 +46,13 @@ STUB
     done
   done
 }
+
+@test "disposable capture output leaves checkout evidence untouched" {
+  prepare_capture
+  before=$(sha256sum "$copy/harnesses/opencode/validation/"*)
+  run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
+  [ "$status" -eq 0 ]
+  [ -s "$TEST_TMP/evidence/resolved-config.json" ]
+  [ -s "$TEST_TMP/evidence/config-stderr.txt" ]
+  [ "$before" = "$(sha256sum "$copy/harnesses/opencode/validation/"*)" ]
+}

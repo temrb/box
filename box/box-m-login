@@ -16,7 +16,7 @@
 # selection (NOTICE + WARNING on fallback, never silent).
 # Pass --docker-fallback to force runc, --runsc to force gVisor.
 # Honors BOX_M_ALLOW_FALLBACK=0 (fail closed instead of falling back).
-# Run from the project root (same constraint as box-m: CWD == project).
+# Run from any project directory; box-m discovers the workspace root.
 #
 # NOTE: the output filter below is a pure-bash read loop on purpose. An awk
 # filter was tried first and silently swallowed all output while `muse login`
@@ -32,18 +32,21 @@ launcher="$script_dir/box-m"
 [[ -x "$launcher" ]] || { printf '%s: missing sibling launcher: %s\n' "$BOX_TOOL" "$launcher" >&2; exit 1; }
 # shellcheck source=lib/preflight.sh
 source "$script_dir/lib/preflight.sh"
+# shellcheck source=lib/tools.sh
+source "$script_dir/lib/tools.sh"
 # shellcheck source=lib/launcher.sh
 source "$script_dir/lib/launcher.sh"
 # shellcheck source=harnesses/muse/native.sh
-source "$script_dir/harnesses/muse/native.sh"
+source "$script_dir/$(box_tool_field muse native_helper)"
 
 usage() {
   cat <<'EOF'
-Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run]
+Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run] [--project-root PATH]
        box-m-login --help
 One-command Meta browser login. Prints a clear sign-in link in this
 terminal, then waits for host-browser approval.
-Run from the project root. Runtime is AUTO by default: `box-m login`
+Run from any project directory. --project-root PATH selects a non-Git root.
+Runtime is AUTO by default: `box-m login`
 probes container DNS under runsc first and auto-selects the hardened-runc
 fallback only if needed. --docker-fallback forces runc, --runsc forces
 gVisor. Honors BOX_M_ALLOW_FALLBACK=0 (fail closed).
@@ -81,6 +84,7 @@ else
   if ((explicit_runsc)); then launcher_args+=(--runsc); fi
 fi
 if ((dry_run)); then launcher_args+=(--dry-run); fi
+if [[ -n "$project_root_arg" ]]; then launcher_args+=(--project-root "$project_root_arg"); fi
 
 if ((dry_run)); then
   exec "$launcher" "${launcher_args[@]}" login
@@ -90,9 +94,8 @@ printf '%s: opening Meta device flow — copy the link below into your HOST brow
 
 # Stream `muse login` line-by-line; when the device URL appears, re-print it
 # as a banner (OSC-8 hyperlink for clickable terminals + plain URL for
-# copy-paste + short code). The pipeline's `while` runs in a subshell, so
-# pipefail alone would mask a launcher failure (loop exits 0); capture
-# PIPESTATUS[0] under `set +e` and exit with it.
+# copy-paste + short code). Supervise the launcher separately from the
+# background output loop and preserve its exit status.
 banner_done=0
 hint_done=0
 login_status=0
@@ -101,9 +104,25 @@ login_status=0
 # loop to detect a silent matcher miss (upstream device-URL shape change).
 banner_sentinel=$(box_mktemp_file box-m-login-banner) || die 'Cannot create banner sentinel.'
 rm -f -- "$banner_sentinel"
-trap 'rm -f -- "$banner_sentinel"' EXIT
+login_stream="${banner_sentinel}.fifo"
+mkfifo -m 600 -- "$login_stream" || die 'Cannot create login output pipe.'
+trap 'rm -f -- "$banner_sentinel" "$login_stream"' EXIT
+# shellcheck source=lib/docker.sh
+source "$script_dir/lib/docker.sh"
+# shellcheck disable=SC2317,SC2329 # invoked by signal traps
+login_interrupt() {
+  local status=$1
+  trap '' INT TERM HUP
+  # Async shells may inherit ignored INT; TERM reaches launcher cleanup.
+  # The delegated launcher bounds Docker cleanup (up to 14 seconds).
+  box_terminate_client "$login_pid" 16
+  box_terminate_client "$filter_pid"
+  exit "$status"
+}
 set +e
-"$launcher" "${launcher_args[@]}" login 2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
+"$launcher" "${launcher_args[@]}" login >"$login_stream" 2>&1 <&0 &
+login_pid=$!
+while IFS= read -r line || [[ -n "$line" ]]; do
   printf '%s\n' "$line"
   if [[ "$banner_done" -eq 0 ]] && probe_out=$(box_device_url_code "$line"); then
     url=${probe_out%%$'\n'*}
@@ -124,8 +143,15 @@ set +e
     printf 'or run: box-m --docker-fallback login\n\n'
     hint_done=1
   fi
-done
-login_status=${PIPESTATUS[0]:-1}
+done <"$login_stream" &
+filter_pid=$!
+trap 'login_interrupt 143' TERM
+trap 'login_interrupt 130' INT
+trap 'login_interrupt 129' HUP
+wait "$login_pid"
+login_status=$?
+wait "$filter_pid"
+trap - INT TERM HUP
 # Post-run matcher-miss hint, success-only: on failure the tool's own error
 # is the signal and a shape-change guess would misdiagnose it. An
 # already-logged-in rerun also lands here (no URL, exit 0) — the hint says

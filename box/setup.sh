@@ -7,8 +7,8 @@
 # Safe to re-run: never overwrites providers.env; installed version pins are
 # preserved when they differ from the bundle (sync them via
 # make -C box sync-pins-<stem> (docs/upgrades.md)). Tool configs, launchers, and lib/*.sh are refreshed
-# from the bundle on every run; persisted Muse user settings in
-# muse-config/settings.json are seeded once and never overwritten.
+# from the bundle on every run; Muse settings are generated per launch from
+# live defaults (setup prepares only persistent auth/trust).
 set -euo pipefail
 # Save the caller's PATH before the fixed tool PATH below so the final
 # next-steps reminder can check whether ~/.local/bin is actually on it.
@@ -222,7 +222,7 @@ for _setup_id in $box_tool_ids; do
     _setup_relative=${_setup_code#"$bundle_dir/harnesses/$_setup_id/"}
     box_prepare_directory "$_setup_pkg/$(dirname -- "$_setup_relative")" 755 >/dev/null
     [[ ! -L "$_setup_pkg/$_setup_relative" ]] || die 'Installed adapter must not be a symlink.'
-    install -m 644 -- "$_setup_code" "$_setup_pkg/$_setup_relative"
+    box_atomic_install "$_setup_code" "$_setup_pkg/$_setup_relative" 644
   done < <(find "$bundle_dir/harnesses/$_setup_id" -type f -name '*.sh' ! -path '*/verify.d/*')
   # This is a code-only package tree; remove obsolete installed shell code
   # only after the current source package has been validated and installed.
@@ -247,18 +247,18 @@ setup_ok "version pins in place (installed pins win on re-run)"
 # their own dir; the installed copy must match that layout).
 [[ -f "$bundle_dir/lib/preflight.sh" ]] || die "Missing lib sources in $bundle_dir/lib."
 for _lib in "$bundle_dir"/lib/*.sh; do
-  install -m 644 -- "$_lib" "$HOME/.local/bin/lib/"
+  box_atomic_install "$_lib" "$HOME/.local/bin/lib/$(basename -- "$_lib")" 644
 done
 unset _lib
 _setup_names=""
 for _setup_id in $box_tool_ids; do
   _setup_launcher=$(box_tool_field "$_setup_id" launcher)
-  install -m 755 -- "$bundle_dir/$_setup_launcher" "$HOME/.local/bin/$_setup_launcher"
+  box_atomic_install "$bundle_dir/$_setup_launcher" "$HOME/.local/bin/$_setup_launcher" 755
   _setup_names+="$_setup_launcher "
 done
 unset _setup_id _setup_launcher
 # box-m-login is a muse-only UX helper outside the registry (no twin).
-install -m 755 -- "$bundle_dir/box-m-login" "$HOME/.local/bin/box-m-login"
+box_atomic_install "$bundle_dir/box-m-login" "$HOME/.local/bin/box-m-login" 755
 # `box` is the setup-managed default entry point: a relative symlink (same
 # dir) so script_dir realpath resolution still finds the split lib/*.sh
 # files. --default <id> points it at that tool's launcher; re-running with
@@ -353,7 +353,7 @@ unset _setup_runtimes
 box_load_all_pins "$bundle_dir"
 _setup_versions=""
 for _setup_id in $box_tool_ids; do
-  _setup_vkey=$(box_tool_field "$_setup_id" pin_keys); _setup_vkey=${_setup_vkey%% *}
+  _setup_vkey=$(box_version_key "$_setup_id")
   _setup_versions+="${_setup_versions:+, }$_setup_id ${!_setup_vkey}"
 done
 unset _setup_id _setup_vkey
@@ -369,7 +369,7 @@ else
   # check-pins.sh); both now delegate to lib/build.sh.
   for _setup_id in $box_tool_ids; do
     if [[ -z "$setup_only" || "$setup_only" == "$_setup_id" ]]; then
-      _setup_vkey=$(box_tool_field "$_setup_id" pin_keys); _setup_vkey=${_setup_vkey%% *}
+      _setup_vkey=$(box_version_key "$_setup_id")
       setup_step "-> $(box_tool_field "$_setup_id" image_prefix):${!_setup_vkey}-u${host_uid}-g${host_gid}"
       box_build_image "$_setup_id" "$bundle_dir"
       setup_ok "$_setup_id image built + labels verified"
@@ -402,41 +402,33 @@ case ":${setup_orig_path:-}:" in
 esac
 # Git identity is needed before first launch: any NAME + any EMAIL across
 # every registry git prefix (same primary/fallback semantics the launchers
-# use). The hint lists every prefix pair for the [todo] summary below.
-# When env is incomplete, missing fields are inferred from
-# `git config --global` (same validity rules the launchers enforce; invalid
-# values count as missing). Explicit env always wins per field. Nothing is
-# exported or persisted here: setup.sh stays non-interactive and only prints
-# copy-paste lines (CI-safe; no prompts, no shell-rc writes).
-_setup_git_name=""; _setup_git_email=""; _setup_git_hint=""
-for _setup_id in $box_tool_ids; do
-  _setup_gp=$(box_tool_field "$_setup_id" git_prefix)
-  _setup_nv="${_setup_gp}_GIT_NAME"; _setup_ev="${_setup_gp}_GIT_EMAIL"
-  [[ -n "$_setup_git_name" ]] || _setup_git_name=${!_setup_nv:-}
-  [[ -n "$_setup_git_email" ]] || _setup_git_email=${!_setup_ev:-}
-  _setup_git_hint+="${_setup_git_hint:+ and/or }${_setup_gp}_GIT_NAME/${_setup_gp}_GIT_EMAIL"
-done
-unset _setup_id _setup_gp _setup_nv _setup_ev
+# use, via box_git_identity_probe). The hint lists every prefix pair for
+# the [todo] summary below. When env is incomplete, missing fields are
+# inferred from `git config --global` (same validity rules the launchers
+# enforce; invalid values count as missing). Explicit env always wins per
+# field. Nothing is exported or persisted here: setup.sh stays
+# non-interactive and only prints copy-paste lines (CI-safe; no prompts,
+# no shell-rc writes).
 _setup_need_git=0
-if [[ -n "$_setup_git_name" && -n "$_setup_git_email" ]]; then
-  setup_ok "git identity set"
-else
-  box_infer_git_identity
-  [[ -n "$_setup_git_name" ]] || _setup_git_name=$inferred_git_name
-  [[ -n "$_setup_git_email" ]] || _setup_git_email=$inferred_git_email
-  if [[ -n "$_setup_git_name" && -n "$_setup_git_email" ]]; then
+_setup_probe_primary=$(box_tool_field "${box_tool_ids%% *}" git_prefix)
+if box_git_identity_probe "$_setup_probe_primary"; then
+  _setup_git_hint=$probe_git_hint
+  if [[ -n "$probe_git_inferred" ]]; then
     setup_ok "git identity inferred from git config --global (launchers infer live; copy-paste to pin explicitly for reproducible CI):"
     for _setup_id in $box_tool_ids; do
       _setup_gp=$(box_tool_field "$_setup_id" git_prefix)
       printf '    export %s_GIT_NAME=%q %s_GIT_EMAIL=%q\n' \
-        "$_setup_gp" "$_setup_git_name" "$_setup_gp" "$_setup_git_email" >&2
+        "$_setup_gp" "$probe_git_name" "$_setup_gp" "$probe_git_email" >&2
     done
     unset _setup_id _setup_gp
   else
-    _setup_need_git=1
+    setup_ok "git identity set"
   fi
+else
+  _setup_git_hint=$probe_git_hint
+  _setup_need_git=1
 fi
-unset _setup_git_name _setup_git_email inferred_git_name inferred_git_email
+unset _setup_probe_primary probe_git_name probe_git_email probe_git_missing probe_git_hint probe_git_inferred probe_git_raw_name probe_git_raw_email inferred_git_name inferred_git_email
 # An empty providers.env is valid for keyless native login: there is no
 # missing-providers todo state, so no _setup_need_providers flag.
 _setup_verify_cmds=""

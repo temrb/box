@@ -51,6 +51,95 @@ load helpers
   done
 }
 
+@test "generated harnesses keep section markers in ascending order" {
+  for id in $box_tool_ids; do
+    prev=0
+    for sec in 1 2 3 4 5; do
+      line=$(grep -n -m1 "=== $sec\." -- "$BUNDLE_DIR/verify-$id.sh" | cut -d: -f1)
+      [ -n "$line" ] || { echo "verify-$id.sh: missing === $sec. marker"; return 1; }
+      [ "$line" -gt "$prev" ] \
+        || { echo "verify-$id.sh: === $sec. out of order (line $line after $prev)"; return 1; }
+      prev=$line
+    done
+  done
+}
+
+@test "containment gates fail closed for root without a daemon (offline stubs)" {
+  run bash -c '
+    box_warnings=0
+    id() { printf "0\n"; }
+    uname() { printf "stub-kernel\n"; }
+    capsh() { printf "Current: =\n"; }
+    timeout() { shift; "$@"; }
+    docker() { printf "stub docker must not run\n" >&2; return 125; }
+    source "$1/verify.d/50-containment.sh"
+  ' _ "$BUNDLE_DIR"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL: running as root"* ]]
+}
+
+@test "containment gates fail closed without capsh (offline stubs)" {
+  run bash -c '
+    box_warnings=0
+    id() { printf "1000\n"; }
+    uname() { printf "stub-kernel\n"; }
+    timeout() { shift; "$@"; }
+    docker() { printf "stub docker must not run\n" >&2; return 125; }
+    command() {
+      if [[ "${1:-}" == "-v" && "${2:-}" == capsh ]]; then return 1; fi
+      builtin command "$@"
+    }
+    source "$1/verify.d/50-containment.sh"
+  ' _ "$BUNDLE_DIR"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL: capsh not on PATH"* ]]
+}
+
+@test "toolchain section passes offline with stubbed discovery tools" {
+  run bash -c '
+    box_warnings=0
+    git() { return 0; }
+    rg() { return 0; }
+    fd() { return 0; }
+    find() { return 0; }
+    cc() {
+      local out="" prev="" a
+      for a in "$@"; do
+        if [[ "$prev" == "-o" ]]; then out="$a"; fi
+        prev="$a"
+      done
+      printf "#!/bin/bash\necho \"C build/run: PASS\"\n" >"$out"
+      chmod +x "$out"
+    }
+    source "$1/verify.d/20-toolchain.sh"
+  ' _ "$BUNDLE_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Discovery & Git tools: PASS"* ]]
+  [[ "$output" == *"C build/run: PASS"* ]]
+}
+
+@test "every registry config is validated (CONFIG_FILES parity)" {
+  run make -C "$BUNDLE_DIR" -n verify-config
+  [ "$status" -eq 0 ]
+  for src in $(box_config_sources); do
+    [[ "$output" == *"$src"* ]] \
+      || { echo "$src missing from verify-config"; return 1; }
+  done
+}
+
+@test "verify-config fails on a malformed registry config (bundle copy)" {
+  command -v python3 >/dev/null || skip "no python3 (TOML validation needs 3.11+ tomllib)"
+  command -v jq >/dev/null || skip "no jq (JSON validation needs jq)"
+  copy="$TEST_TMP/bundle-malformed"
+  rm -rf -- "$copy"
+  cp -r -- "$BUNDLE_DIR" "$copy"
+  chmod -R u+w -- "$copy"
+  printf '{not valid json' >>"$copy/harnesses/muse/config/settings.json"
+  run make -C "$copy" verify-config
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"settings.json"* ]]
+}
+
 @test "partials carry tokens, generated harnesses carry resolved versions" {
   unset project
   for id in $box_tool_ids; do

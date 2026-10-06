@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify-opencode.sh — in-container readiness harness for box-o.
-# GENERATED NOTE: do not edit by hand — edit verify.d/ partials and run
-# gen-verify.sh. This file and verify-muse.sh stay self-contained
+# GENERATED NOTE: do not edit by hand — edit shared/package verify.d/ partials and run
+# gen-verify.sh. All generated verifiers stay self-contained
 # (delivered via stdin under --shell, cannot source a shared file). Shared
 # §§1-2/5 (workspace, toolchain, containment) live once in verify.d/
 # (10-workspace.sh, 20-toolchain.sh, 50-containment.sh); §4 is
@@ -102,19 +102,58 @@ else
   echo 'Project build/test: SKIPPED (pass command as argument 2)'
 fi
 
+# Shared verify helpers (defined once here, available to §§3-4/6 below).
+# Outputs stay self-contained: no sourcing, just concatenation order.
+# Egress proof: any HTTP response code — including 4xx — proves TCP+TLS.
+# FAIL on transport failure (rc != 0) or empty/000 code. Optional $3 hint
+# appends context to the FAIL line only.
+box_verify_egress() {
+  local url=${1:-} label=${2:-} hint=${3:-} rc=0 code
+  [[ -n "$url" && -n "$label" ]] || { echo 'FAIL: internal egress arguments' >&2; exit 1; }
+  command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
+  code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null) || rc=$?
+  [[ "$rc" -eq 0 && -n "${code:-}" && "$code" != "000" ]] \
+    || { echo "FAIL: outbound HTTPS to $label unreachable (curl rc=$rc http=${code:-none}$hint)" >&2; exit 1; }
+  echo "Outbound HTTPS to $label (HTTP $code): PASS"
+}
+# Auth-cache hygiene: existing caches must be user-owned regular files with
+# mode 600 and writable (refresh). Missing caches are fine (keyless login).
+box_verify_cache() {
+  local cache=${1:-} label=${2:-unsafe native authentication cache owner/mode/writability}
+  [[ -n "$cache" ]] || { echo 'FAIL: internal cache arguments' >&2; exit 1; }
+  if [[ -e "$cache" || -L "$cache" ]]; then
+    [[ ! -L "$cache" && -f "$cache" && "$(stat -c %u "$cache")" == "$(id -u)" && "$(stat -c %a "$cache")" == 600 && -w "$cache" ]] \
+      || { echo "FAIL: $label" >&2; exit 1; }
+  fi
+}
+# Outer-runtime unshare probe: unprivileged `unshare -Ur` needs no
+# capabilities, so an observed block is gVisor seccomp/runsc behavior, not
+# `--cap-drop=ALL`+`no-new-privileges` alone. Record evidence (exit codes).
+box_verify_unshare() {
+  if command -v unshare >/dev/null; then
+    set +e
+    unshare -Ur true >/dev/null 2>&1
+    unshare_status=$?
+    set -e
+    if ((unshare_status == 0)); then
+      echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
+      box_warnings=$((box_warnings+1))
+    else
+      echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
+    fi
+  else
+    echo 'Inner unshare probe: SKIPPED (unshare not installed)'
+  fi
+}
+
 echo "=== 3. Network Egress Check ==="
-command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
 # Generic HTTPS egress (opencode ships no provider endpoint under pure
-# /connect, so any stable public HTTPS URL proves TCP+TLS). Any HTTP
-# response code — including 4xx — proves egress. FAIL on transport failure
-# (rc != 0) or empty/000 code.
-egress_rc=0
-egress_code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' https://opencode.ai 2>/dev/null) || egress_rc=$?
-[[ "$egress_rc" -eq 0 && -n "${egress_code:-}" && "$egress_code" != "000" ]] \
-  || { echo "FAIL: outbound HTTPS to opencode.ai unreachable (curl rc=$egress_rc http=${egress_code:-none})" >&2; exit 1; }
-echo "Outbound HTTPS to opencode.ai (HTTP $egress_code): PASS"
+# /connect, so any stable public HTTPS URL proves TCP+TLS): shared proof.
+box_verify_egress https://opencode.ai opencode.ai
 echo "=== 4. OpenCode Operational Readiness ==="
 command -v opencode >/dev/null || { echo 'FAIL: opencode binary not on PATH' >&2; exit 1; }
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v jq >/dev/null || { echo 'FAIL: jq not on PATH' >&2; exit 1; }
 printf 'OpenCode binary version: '
 opencode_version_out=$(opencode --version 2>&1) || { echo 'FAIL: opencode --version failed' >&2; exit 1; }
 printf '%s\n' "$opencode_version_out"
@@ -125,9 +164,7 @@ for _parent in /persist/data /persist/data/opencode /persist/data/opencode/openc
   [[ ! -L "$_parent" ]] || { echo 'FAIL: redirected native OpenCode cache parent' >&2; exit 1; }
 done
 for _cache in /persist/data/opencode/opencode/opencode.db /persist/data/opencode/opencode/opencode.db-wal /persist/data/opencode/opencode/opencode.db-shm; do
-  if [[ -e "$_cache" || -L "$_cache" ]]; then
-    [[ ! -L "$_cache" && -f "$_cache" && "$(stat -c %u "$_cache")" == "$(id -u)" && "$(stat -c %a "$_cache")" == 600 && -w "$_cache" ]] || { echo 'FAIL: unsafe native authentication cache owner/mode/writability' >&2; exit 1; }
-  fi
+  box_verify_cache "$_cache"
 done
 # The pinned v2 native credential store is SQLite, not the retired auth.json cache.
 # Inspect natively without printing account metadata or keys. Missing inspection fails.
@@ -280,20 +317,7 @@ echo "=== 6. Outer-Runtime Probe (no inner bwrap in OpenCode) ==="
 # no capabilities, so an observed block is gVisor seccomp/runsc behavior, not
 # `--cap-drop=ALL`+`no-new-privileges` alone. Treat outer Docker/gVisor as the
 # sole containment layer.
-if command -v unshare >/dev/null; then
-  set +e
-  unshare -Ur true >/dev/null 2>&1
-  unshare_status=$?
-  set -e
-  if ((unshare_status == 0)); then
-    echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
-    box_warnings=$((box_warnings+1))
-  else
-    echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
-  fi
-else
-  echo 'Inner unshare probe: SKIPPED (unshare not installed)'
-fi
+box_verify_unshare
 
 echo "================================================================="
 if ((box_warnings > 0)); then

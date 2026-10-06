@@ -39,7 +39,7 @@ consumers. Source config/policy directories are inventoried recursively.
 `harnesses/<id>/` owns native assets, launch behavior, upstream resolver,
 validator, optional install adapter, and native verification partials. Shared
 libraries orchestrate these contracts without branching on harness IDs. Muse
-policy merging, theme import, login parsing, and inner-sandbox bypass belong to
+policy merging, directory settings snapshots, login parsing, and inner-sandbox bypass belong to
 its package. JSON parsing uses jq; TOML parsing uses Python 3.11+ `tomllib`.
 Shape parsing is separate from native semantic and runtime acceptance.
 
@@ -50,7 +50,8 @@ needed to launch. Source generators/updaters/builds still use the bundle.
 
 Template refresh backs up a differing predecessor to one `.bak`. Installed
 pins survive setup reruns. Seed-if-absent preserves even empty live TOML;
-Muse retains its explicit legacy-empty JSON repair. The single managed-image
+Muse settings are generated per launch from live defaults (no seed repair).
+The single managed-image
 artifact is the Codex requirements policy (root-owned image file, image rebuild
 required). See the individual
 [harness guides](harnesses.md) for native paths and preference behavior.
@@ -122,7 +123,7 @@ read-only and `XDG_CONFIG_HOME=/persist/config`. Its launcher adapter derives
 volumes are left untouched. Data and state roots remain unchanged. Native v2
 credentials/sessions/saved approvals use `/persist/data/opencode/opencode/opencode.db`;
 the guarded entrypoint checks database/journal metadata and uses umask 077 in
-ordinary and shell runs. Client `cli.json` preferences persist per physical project.
+ordinary and shell runs. Client preferences are reset under a volume lock on each launch; legacy preferences are backed up once.
 
 The agent can change or delete mounted project files, use credentials available
 inside its process, and exfiltrate over permitted egress. Native approval is
@@ -134,3 +135,22 @@ must be tested separately, without automatic substitution in acceptance runs.
 
 Rootless/userns remapping, stable project IDs, an egress broker, SBOM/signature
 work, and broad runtime minimization remain separate projects.
+
+## Live defaults and directory inheritance
+
+Setup installs defaults independently of the checkout. Every launch reads the
+latest installed defaults (or `BOX_M_CONFIG`, `BOX_O_CONFIG`, `BOX_C_CONFIG`).
+Git discovery ignores inherited Git controls and finds the nearest root. An
+explicit `--project-root PATH` selects an ancestor for non-Git trees. The whole
+root mounts at `/workspace`; the client starts in the corresponding subdirectory.
+Preflight checks apply to the mounted tree. State identity still hashes the
+physical launch directory, preserving existing homes and volumes.
+
+Registry `directory_configs` declares recognized locations in precedence order.
+Native Codex trust, profiles and project field restrictions remain authoritative;
+OpenCode native loaders handle JSONC, relative resources and style precedence.
+Muse uses strict data-only JSON merging in its adapter and reapplies protected
+settings after merging. Removing a directory override restores inheritance.
+Preferences saved in a UI do not override defaults on later launches. Existing
+resumed sessions retain native state; configuration governs startup and new
+session defaults. Dry-run lists paths and precedence, without contents or writes.

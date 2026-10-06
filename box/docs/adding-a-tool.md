@@ -13,7 +13,7 @@ should not require rewriting shared operational guides.
    including aliases. Do not put executable expressions in records.
    `probe_url` is the canonical HTTPS endpoint: its host must appear in
    `probe_hosts` and in the harness `30-network` partial (muse exact URL equals
-   its settings `api.base_url`).
+   its settings `endpoint_transport.base_url`).
 2. Create `harnesses/<id>/config/`, optional `policy/`, unique
    `version-<id>.env`, and `launch.sh`, `update.sh`, `validate.sh`, optionally
    `install.sh`. Reuse a pin format only if its complete positional contract
@@ -31,11 +31,16 @@ should not require rewriting shared operational guides.
    hash the retained installation inputs, assert exact normalized versions,
    set UID/GID and labels, and include only actual inputs in `.dockerignore`.
    Declare image policies as root-owned managed artifacts with build consumers.
+   Extra public wrappers outside the registry (like `box-m-login`) are
+   acceptable only as UX helpers; setup must install them explicitly.
 5. Add five package `verify.d/` partials: `00-header`, `30-network`,
    `40-readiness`, `60-probe`, `99-footer`. Use the version `@@<PIN_KEY>@@`
    token and generated `@@ARTIFACT_<NAME>@@` structural expectations.
    Keep output self-contained: shared sections come from root `verify.d/`;
-   native probe helpers must be embedded by the generator. Check native schema,
+   native probe helpers use one of two contracts: embed via the
+   `@@NATIVE_PROBE@@` generator token (codex) or pipe/direct-run delivery
+   outside the generated verifier (opencode acceptance); declare which
+   applies. Check native schema,
    requirements loading, effective layering, overrides, agent/session policy,
    and unavailable-inspection failures, with bounded cleanup and no model turn
    where possible. A syntax check or global config dump alone is insufficient.
@@ -59,3 +64,7 @@ Unknown artifacts, escaping paths, duplicate destinations, and missing consumers
 must fail validation. Native facts stay in package assets and guides; shared
 docs link them. A new integration is implemented only after these changes and
 accepted only when its declared runtime gates have evidence.
+
+Declare `directory_configs` in native precedence order in the registry. Adapters
+own native preference lifecycle and migration; shared libraries enumerate paths
+and validate containment without branching on tool IDs.

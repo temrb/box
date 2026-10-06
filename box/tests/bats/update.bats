@@ -88,6 +88,14 @@ seed_synthetic_pins() {
   [[ "$output" == *"OpenCode: "*"(up to date)"* ]]
 }
 
+@test "update --check rejects a partial seed" {
+  seed_current_pins
+  unset BOX_UPDATE_OPENCODE_SHA256_AMD64 BOX_UPDATE_OPENCODE_SHA256_ARM64
+  run bash "$BUNDLE_DIR/update-pins.sh" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Partial OpenCode seed"* ]]
+}
+
 @test "update detects and applies digest changes at the same version" {
   seed_current_pins
   BOX_UPDATE_MUSE_SHA256_AMD64=$(printf '%064d' 1)
@@ -206,7 +214,7 @@ seed_synthetic_pins() {
   # Bump-invariant files: readiness partials (tokens) and tests (no pin
   # literals) must survive the apply byte-identical.
   before=$(sha256sum -- "$copy/harnesses/muse/verify.d/40-readiness-muse.sh" "$copy/harnesses/opencode/verify.d/40-readiness-opencode.sh" \
-    "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats")
+    "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats" "$copy/tests/bats/opencode-v2.bats")
   run bash "$copy/update-pins.sh" --pins-only
   [ "$status" -eq 0 ]
   [[ "$output" == *"PASS"* ]]
@@ -217,7 +225,7 @@ seed_synthetic_pins() {
   run grep -F "NODE_VERSION" -- "$copy/harnesses/opencode/version-opencode.env"
   [ "$status" -ne 0 ]
   [ "$(sha256sum -- "$copy/harnesses/muse/verify.d/40-readiness-muse.sh" "$copy/harnesses/opencode/verify.d/40-readiness-opencode.sh" \
-    "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats")" = "$before" ]
+    "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats" "$copy/tests/bats/opencode-v2.bats")" = "$before" ]
   # Generated outputs carry the synthetic versions.
   grep -Fq "$BOX_UPDATE_MUSE_VERSION" -- "$copy/verify-muse.sh"
   grep -Fq "$BOX_UPDATE_OPENCODE_VERSION" -- "$copy/verify-opencode.sh"
@@ -229,7 +237,7 @@ seed_synthetic_pins() {
   [ "$status" -eq 0 ]
   run bash "$copy/check-pins.sh"
   [ "$status" -eq 0 ]
-  run bats "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats"
+  run bats "$copy/tests/bats/pins.bats" "$copy/tests/bats/version.bats" "$copy/tests/bats/opencode-v2.bats"
   [ "$status" -eq 0 ]
 }
 

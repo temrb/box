@@ -6,18 +6,7 @@ muse_download_base='https://lookaside.facebook.com/lookaside/muse/download/'
 # fetch when the target equals the current pin (explicit or seed).
 resolve_muse() {
   local explicit=${1:-} channel_json version manifest_url manifest_json got algo
-  if [[ -n "${BOX_UPDATE_MUSE_VERSION:-}" ]]; then
-    [[ -z "$explicit" ]] || die 'Conflicting Muse pins: --muse and BOX_UPDATE_MUSE_VERSION are both set.'
-    want_muse_version=$BOX_UPDATE_MUSE_VERSION
-    want_muse_amd64=${BOX_UPDATE_MUSE_SHA256_AMD64:-}
-    want_muse_arm64=${BOX_UPDATE_MUSE_SHA256_ARM64:-}
-    [[ -n "$want_muse_amd64" && -n "$want_muse_arm64" ]] \
-      || die 'Partial Muse seed: set BOX_UPDATE_MUSE_VERSION, BOX_UPDATE_MUSE_SHA256_AMD64, and BOX_UPDATE_MUSE_SHA256_ARM64 together.'
-    return 0
-  fi
-  if [[ -n "${BOX_UPDATE_MUSE_SHA256_AMD64:-}${BOX_UPDATE_MUSE_SHA256_ARM64:-}" ]]; then
-    die 'Partial Muse seed: set BOX_UPDATE_MUSE_VERSION, BOX_UPDATE_MUSE_SHA256_AMD64, and BOX_UPDATE_MUSE_SHA256_ARM64 together.'
-  fi
+  if box_update_seed MUSE "$explicit" --muse Muse want_muse_version want_muse_amd64 want_muse_arm64; then return 0; fi
   if [[ -n "$explicit" ]]; then
     if [[ "$explicit" == "$MUSE_VERSION" ]]; then
       want_muse_version=$MUSE_VERSION

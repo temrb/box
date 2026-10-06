@@ -2,7 +2,7 @@
 # shellcheck disable=SC2154 # setup-owned globals
 # Muse owns its global live settings/cache preparation.
 # shellcheck source=harnesses/muse/native.sh
-source "$bundle_dir/harnesses/muse/native.sh"
+source "$bundle_dir/$(box_tool_field muse native_helper)"
 box_harness_install_plan() {
   local home
   home="$HOME/$(box_state_field muse home root)"
@@ -15,5 +15,5 @@ box_harness_install_prepare() {
   local home
   home="$HOME/$(box_state_field muse home root)"
   box_prepare_directory "$home" 700 >/dev/null
-  box_muse_seed_config "$HOME/.config/$(box_tool_field muse config_dir)/$(box_tool_field muse config_file)" "$home/settings.json"
+  # Settings are generated per launch; setup prepares only persistent auth/trust.
 }

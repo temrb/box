@@ -41,6 +41,7 @@ endif
 # on the generated harnesses, not fragments).
 SHELL_FILES := $(sort $(patsubst $(BUNDLE_DIR)/%,%,$(shell find $(BUNDLE_DIR) -type f -name '*.sh' ! -path '*/verify.d/*') $(wildcard $(BUNDLE_DIR)/box-*)))
 PARTIAL_FILES := $(patsubst $(BUNDLE_DIR)/%,%,$(shell find $(BUNDLE_DIR) -type f -path '*/verify.d/*.sh'))
+PYTHON_FILES := $(sort $(patsubst $(BUNDLE_DIR)/%,%,$(shell find $(BUNDLE_DIR) -type f -name '*.py')))
 CONFIG_FILES := $(sort $(TOOL_CONFIGS))
 
 # Docker CLI isolation lives in lib/build.sh via box_docker_cli
@@ -51,19 +52,21 @@ CONFIG_FILES := $(sort $(TOOL_CONFIGS))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build pin-check verify-static verify-native verify-config verify-shell verify-generated verify-pins-generated pins test setup clean regen-validation update update-check FORCE
+.PHONY: help build pin-check verify-static verify-native verify-config verify-shell verify-python verify-generated verify-pins-generated pins test test-live setup clean regen-validation update update-check FORCE
 
 help:
 	@echo 'Usage: make [target]'
 	@echo '  build          build all images for your UID/GID (needs Engine + runsc)'
 	@echo '  build-<stem>   build one image (stem = registry launcher suffix, e.g. build-m, build-o)'
 	@echo '  setup          run setup.sh (configs, launchers, networks, all images; see setup.sh --help)'
-	@echo '  test           run the bats unit suite (tests/bats/)'
+	@echo '  test           run the bats unit suite (tests/bats/; daemon-free)'
+	@echo '  test-live      run the live-daemon bats suite (tests/bats-live/; needs Engine)'
 	@echo '  verify-static  syntax + configs + generated + pins + shellcheck + bats (fast-first)'
 	@echo '  verify-native-opencode  production OpenCode runsc/runc policy and state checks'
 	@echo '  verify-native  disposable runsc/runc native evidence; fails on unmet account/policy gates'
 	@echo '  verify-config  validate JSON/TOML configuration documents'
 	@echo '  verify-shell   bash -n over shell sources and verification partials'
+	@echo '  verify-python  py_compile over Python native helpers and tests'
 	@echo '  verify-generated  assert verify-*.sh == gen-verify.sh output (primary check; implies §§1-2/5 sync)'
 	@echo '  verify-pins-generated  assert docs/architecture.md §4 == gen-pins.sh output'
 	@echo '  pin-check      assert version pins vs Dockerfile vs docs/architecture.md §4'
@@ -113,15 +116,23 @@ test:
 	command -v bats >/dev/null || { echo 'bats is required: apt-get install bats (or npm i -g bats)' >&2; exit 1; }
 	bats "$(BUNDLE_DIR)/tests/bats/"
 
+test-live:
+	command -v bats >/dev/null || { echo 'bats is required: apt-get install bats (or npm i -g bats)' >&2; exit 1; }
+	bats "$(BUNDLE_DIR)/tests/bats-live/"
+
 verify-shell:
 	for f in $(SHELL_FILES); do bash -n "$(BUNDLE_DIR)/$$f" || exit 1; done
 	for f in $(PARTIAL_FILES); do bash -n "$(BUNDLE_DIR)/$$f" || exit 1; done
+
+verify-python:
+	python3 -m py_compile $(addprefix "$(BUNDLE_DIR)/",$(PYTHON_FILES))
 
 verify-config:
 	BOX_TOOL=make bash -c 'source "$(BUNDLE_DIR)/lib/preflight.sh" && source "$(BUNDLE_DIR)/lib/config-file.sh" && source "$(BUNDLE_DIR)/lib/tools.sh" && box_validate_registry "$(BUNDLE_DIR)" && for f in "$$@"; do box_config_validate "$(BUNDLE_DIR)/$$f" || exit 1; done' _ $(CONFIG_FILES)
 
 verify-static:
 	$(MAKE) verify-shell
+	$(MAKE) verify-python
 	$(MAKE) verify-config
 	bash "$(BUNDLE_DIR)/gen-verify.sh" --check
 	bash "$(BUNDLE_DIR)/gen-pins.sh" --check

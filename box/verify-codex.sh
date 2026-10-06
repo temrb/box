@@ -23,10 +23,10 @@ case "${BOX_RUNTIME:-}" in ''|runc|runsc) : ;; *) echo 'FAIL: BOX_RUNTIME must b
 case "${BOX_ALLOW_PROXY:-0}" in 0|1) : ;; *) echo 'FAIL: BOX_ALLOW_PROXY must be 0|1' >&2; exit 1 ;; esac
 if [[ -z "${BOX_RUNTIME:-}" ]]; then echo 'WARNING: BOX_RUNTIME unset (manual run; grading CapBnd like runsc)'; box_warnings=$((box_warnings+1)); fi
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-  echo 'Usage: box-o --shell -s -- <existing-project-file> [test-command] < verify-codex.sh'
+  echo 'Usage: box-c --shell -s -- <existing-project-file> [test-command] < verify-codex.sh'
   exit 0
 fi
-[[ "$PWD" == /workspace ]] || { echo 'Run through box-o --shell.' >&2; exit 1; }
+[[ "$PWD" == /workspace ]] || { echo 'Run through box-c --shell.' >&2; exit 1; }
 [[ -n "${1:-}" && -f "$1" ]] || { echo 'Usage: pass an existing project file, then optionally a test command.' >&2; exit 1; }
 # Single EXIT cleanup for the whole harness: every section below shares these
 # temp vars and only assigns them, never re-arms the trap, so the chain
@@ -102,24 +102,75 @@ else
   echo 'Project build/test: SKIPPED (pass command as argument 2)'
 fi
 
+# Shared verify helpers (defined once here, available to §§3-4/6 below).
+# Outputs stay self-contained: no sourcing, just concatenation order.
+# Egress proof: any HTTP response code — including 4xx — proves TCP+TLS.
+# FAIL on transport failure (rc != 0) or empty/000 code. Optional $3 hint
+# appends context to the FAIL line only.
+box_verify_egress() {
+  local url=${1:-} label=${2:-} hint=${3:-} rc=0 code
+  [[ -n "$url" && -n "$label" ]] || { echo 'FAIL: internal egress arguments' >&2; exit 1; }
+  command -v curl >/dev/null || { echo 'FAIL: curl not on PATH' >&2; exit 1; }
+  code=$(curl --silent --location --max-time 15 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null) || rc=$?
+  [[ "$rc" -eq 0 && -n "${code:-}" && "$code" != "000" ]] \
+    || { echo "FAIL: outbound HTTPS to $label unreachable (curl rc=$rc http=${code:-none}$hint)" >&2; exit 1; }
+  echo "Outbound HTTPS to $label (HTTP $code): PASS"
+}
+# Auth-cache hygiene: existing caches must be user-owned regular files with
+# mode 600 and writable (refresh). Missing caches are fine (keyless login).
+box_verify_cache() {
+  local cache=${1:-} label=${2:-unsafe native authentication cache owner/mode/writability}
+  [[ -n "$cache" ]] || { echo 'FAIL: internal cache arguments' >&2; exit 1; }
+  if [[ -e "$cache" || -L "$cache" ]]; then
+    [[ ! -L "$cache" && -f "$cache" && "$(stat -c %u "$cache")" == "$(id -u)" && "$(stat -c %a "$cache")" == 600 && -w "$cache" ]] \
+      || { echo "FAIL: $label" >&2; exit 1; }
+  fi
+}
+# Outer-runtime unshare probe: unprivileged `unshare -Ur` needs no
+# capabilities, so an observed block is gVisor seccomp/runsc behavior, not
+# `--cap-drop=ALL`+`no-new-privileges` alone. Record evidence (exit codes).
+box_verify_unshare() {
+  if command -v unshare >/dev/null; then
+    set +e
+    unshare -Ur true >/dev/null 2>&1
+    unshare_status=$?
+    set -e
+    if ((unshare_status == 0)); then
+      echo 'WARNING: inner unshare -Ur unexpectedly succeeded (exit 0)'
+      box_warnings=$((box_warnings+1))
+    else
+      echo "Inner unshare -Ur probe blocked by outer runsc/seccomp (exit $unshare_status, expected nonzero): PASS"
+    fi
+  else
+    echo 'Inner unshare probe: SKIPPED (unshare not installed)'
+  fi
+}
+
 echo '=== 3. Codex transport (separate from authentication) ==='
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v getent >/dev/null || { echo 'FAIL: getent not on PATH' >&2; exit 1; }
 for _host in auth.openai.com api.openai.com chatgpt.com; do
   timeout 15 getent hosts "$_host" >/dev/null || { echo "FAIL: Codex DNS transport for $_host" >&2; exit 1; }
 done
+# TLS egress proof (shared helper): a TLS-blocking proxy must not pass
+# DNS-only checks here and fail opaquely later at `login status`.
+box_verify_egress https://auth.openai.com auth.openai.com
 echo '=== 4. Codex native startup and policy ==='
+command -v timeout >/dev/null || { echo 'FAIL: timeout not on PATH' >&2; exit 1; }
+command -v python3 >/dev/null || { echo 'FAIL: python3 not on PATH' >&2; exit 1; }
 codex_version_out=$(timeout 30 codex --version 2>&1) || { echo 'FAIL: codex --version failed' >&2; exit 1; }
 [[ "$codex_version_out" == 'codex-cli 0.160.0' ]] || { echo 'FAIL: exact Codex binary version mismatch' >&2; exit 1; }
 [[ "$CODEX_HOME" == /home/box/.codex && -w "$CODEX_HOME" && -w /persist/state/codex ]] || { echo 'FAIL: Codex state paths' >&2; exit 1; }
 [[ "$(stat -c '%u:%a' /etc/codex/requirements.toml)" == 0:644 ]] || { echo 'FAIL: Codex managed policy owner/mode' >&2; exit 1; }
 _codex_expected=\{\"allowed_approval_policies\":\[\"on-request\"\]\,\"allowed_approvals_reviewers\":\[\"user\"\]\,\"default_permissions\":\":danger-full-access\"\,\"cli_auth_credentials_store\":\"file\"\,\"check_for_update_on_startup\":false\,\"sqlite_home\":\"/persist/state/codex\"\,\"allowed_permission_profiles\":\{\":danger-full-access\":true\}\}
-_codex_seed=\{\"model\":\"gpt-6.1-sol\"\,\"model_context_window\":1050000\,\"model_auto_compact_token_limit\":700000\,\"model_auto_compact_token_limit_scope\":\"total\"\,\"tool_output_token_limit\":8000\,\"project_doc_max_bytes\":65536\,\"model_reasoning_effort\":\"low\"\,\"plan_mode_reasoning_effort\":\"high\"\,\"model_reasoning_summary\":\"concise\"\,\"personality\":\"pragmatic\"\,\"default_permissions\":\":danger-full-access\"\,\"approval_policy\":\"on-request\"\,\"approvals_reviewer\":\"user\"\,\"cli_auth_credentials_store\":\"file\"\,\"check_for_update_on_startup\":false\,\"sqlite_home\":\"/persist/state/codex\"\,\"web_search\":\"live\"\,\"agents\":\{\"enabled\":true\,\"max_concurrent_threads_per_session\":6\,\"default_subagent_model\":\"gpt-6-luna\"\,\"default_subagent_reasoning_effort\":\"max\"\}\,\"skills\":\{\"max_context_tokens\":8000\}\,\"tools\":\{\"web_search\":\{\"context_size\":\"medium\"\}\}\,\"tui\":\{\"status_line\":\[\"model\"\,\"reasoning\"\,\"used-tokens\"\,\"total-input-tokens\"\,\"total-output-tokens\"\,\"five-hour-limit\"\,\"weekly-limit\"\,\"context-remaining\"\,\"task-progress\"\,\"fast-mode\"\]\}\}
+_codex_seed=\{\"model\":\"gpt-6.1-sol\"\,\"model_context_window\":1050000\,\"model_auto_compact_token_limit\":700000\,\"model_auto_compact_token_limit_scope\":\"total\"\,\"tool_output_token_limit\":8000\,\"project_doc_max_bytes\":65536\,\"model_reasoning_effort\":\"low\"\,\"plan_mode_reasoning_effort\":\"medium\"\,\"model_reasoning_summary\":\"concise\"\,\"personality\":\"pragmatic\"\,\"default_permissions\":\":danger-full-access\"\,\"approval_policy\":\"on-request\"\,\"approvals_reviewer\":\"user\"\,\"cli_auth_credentials_store\":\"file\"\,\"check_for_update_on_startup\":false\,\"sqlite_home\":\"/persist/state/codex\"\,\"web_search\":\"live\"\,\"agents\":\{\"enabled\":true\,\"max_concurrent_threads_per_session\":6\,\"default_subagent_model\":\"gpt-6-luna\"\,\"default_subagent_reasoning_effort\":\"max\"\}\,\"skills\":\{\"max_context_tokens\":8000\}\,\"tools\":\{\"web_search\":\{\"context_size\":\"medium\"\}\}\,\"tui\":\{\"status_line\":\[\"model\"\,\"reasoning\"\,\"used-tokens\"\,\"total-input-tokens\"\,\"total-output-tokens\"\,\"five-hour-limit\"\,\"weekly-limit\"\,\"context-remaining\"\,\"task-progress\"\,\"fast-mode\"\]\}\}
 python3 - "$_codex_expected" <<'PYPOLICY'
 import json, sys, tomllib
 with open("/etc/codex/requirements.toml", "rb") as f:
     actual = tomllib.load(f)
 if actual != json.loads(sys.argv[1]):
     sys.exit("FAIL: Codex managed policy differs")
-with open("/home/box/.codex/config.toml", "rb") as f:
+with open("/etc/codex/config.toml", "rb") as f:
     tomllib.load(f)
 PYPOLICY
 python3 - --policy-json "$_codex_expected" <<'PYNATIVE'
@@ -297,9 +348,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
 PYNATIVE
-if [[ -e "$CODEX_HOME/auth.json" || -L "$CODEX_HOME/auth.json" ]]; then
-  [[ ! -L "$CODEX_HOME/auth.json" && -f "$CODEX_HOME/auth.json" && "$(stat -c %u "$CODEX_HOME/auth.json")" == "$(id -u)" && "$(stat -c %a "$CODEX_HOME/auth.json")" == 600 && -w "$CODEX_HOME/auth.json" ]] || { echo 'FAIL: unsafe native Codex auth cache' >&2; exit 1; }
-fi
+box_verify_cache "$CODEX_HOME/auth.json" 'unsafe native Codex auth cache'
 timeout 30 codex login status >/dev/null 2>&1 || { echo 'FAIL: Codex authentication unavailable (native policy tested separately)' >&2; exit 1; }
 echo 'PASS: Codex authentication status (values withheld)'
 echo "=== 5. Hardening & Host Containment Assertions ==="

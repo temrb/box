@@ -1,15 +1,19 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2004,SC2178,SC2034 # nameref composite-key registry + forwarded state
 # Central declarative harness, artifact, state and adapter contracts.
 [[ -n "${_BOX_TOOLS_LOADED:-}" ]] && return 0
 _BOX_TOOLS_LOADED=1
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
-# Canonical self-dir bootstrap (no helpers yet; realpath preferred, readlink
-# fallback). Same form in lib/tools.sh, lib/pins.sh, lib/build.sh; launchers
-# and entry scripts use the 1-line variant (see box-m). preflight.sh, which
-# defines die, is sourced below. Same self-source pattern as lib/pins.sh so
-# standalone consumers (`bash lib/build.sh`, `bash -c 'source lib/pins.sh ...'`) work.
+# Canonical self-dir bootstrap (bootstrap paradox: no helpers exist yet, so
+# every site copies this snippet instead of sharing it; realpath preferred,
+# readlink fallback). Same form in lib/preflight.sh, lib/pins.sh,
+# lib/build.sh; launchers and entry scripts use the 1-line variant (see
+# box-m). Drift fails loudly via the shape test in tests/bats/preflight.bats.
+# preflight.sh, which defines die, is sourced below. Same self-source pattern
+# as lib/pins.sh so standalone consumers (`bash lib/build.sh`,
+# `bash -c 'source lib/pins.sh ...'`) work.
 _tools_src=${BASH_SOURCE[0]}
 if command -v realpath >/dev/null 2>&1; then
   _tools_src=$(realpath -- "$_tools_src" 2>/dev/null || printf '%s' "$_tools_src")
@@ -30,19 +34,23 @@ readonly box_tool_ids='muse opencode codex'
 # may be empty when native authentication or preparation needs none).
 # Probe endpoints are canonical HTTPS URLs whose host must appear in
 # probe_hosts and in the harness 30-network partial (muse exact URL equals
-# settings.json api.base_url; codex/opencode hosts match their network probes).
+# settings.json endpoint_transport.base_url; codex/opencode hosts match
+# their network probes).
 # launchers probe DNS via probe_hosts (lib/launcher.sh); verify harnesses prove
 # egress against probe_url/probe_hosts. No per-tool literals elsewhere.
 # shellcheck disable=SC2034 # consumed by tests/bats/tools.bats completeness.
-readonly box_tool_fields='launcher image_prefix network config_dir config_file version_file dockerfile_target version_format probe_hosts forward_keys pin_keys label_pins display git_prefix package version_source launch_adapter install_adapter update_adapter validate_adapter artifacts states probe_url'
+readonly box_tool_fields='launcher image_prefix network state_prefix config_dir config_file version_file dockerfile_target version_format probe_hosts forward_keys pin_keys label_pins display git_prefix package version_source launch_adapter install_adapter update_adapter validate_adapter native_helper verify_label artifacts states probe_url directory_configs directory_parser'
 
 # The table: composite "<id>,<field>" keys. -g: helpers.bash sources lib
 # files inside setup(), where a plain declare would scope this local.
 # shellcheck disable=SC2034 # read via box_tool_field.
 declare -gA _BOX_TOOL_REGISTRY=(
+  [muse,directory_parser]='json'
+  [muse,directory_configs]='.muse/settings.json'
   [muse,launcher]='box-m'
   [muse,image_prefix]='box-m'
   [muse,network]='box-m'
+  [muse,state_prefix]='box-m'
   [muse,config_dir]='box-m'
   [muse,config_file]='settings.json'
   [muse,version_file]='version-muse.env'
@@ -54,9 +62,12 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [muse,label_pins]='MUSE_VERSION:org.meta.muse.box.version MUSE_SHA256_AMD64:org.meta.muse.box.sha256-amd64 MUSE_SHA256_ARM64:org.meta.muse.box.sha256-arm64'
   [muse,display]='Muse'
   [muse,git_prefix]='BOX_M'
+  [opencode,directory_parser]='native'
+  [opencode,directory_configs]='opencode.json:opencode.jsonc .opencode/opencode.json:.opencode/opencode.jsonc'
   [opencode,launcher]='box-o'
   [opencode,image_prefix]='box-o'
   [opencode,network]='box-o'
+  [opencode,state_prefix]='box-o-v2'
   [opencode,config_dir]='box-o'
   [opencode,config_file]='opencode.json'
   [opencode,version_file]='version-opencode.env'
@@ -74,6 +85,8 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [muse,install_adapter]='harnesses/muse/install.sh'
   [muse,update_adapter]='harnesses/muse/update.sh'
   [muse,validate_adapter]='harnesses/muse/validate.sh'
+  [muse,native_helper]='harnesses/muse/native.sh'
+  [muse,verify_label]='MUSE CODE'
   [muse,artifacts]='settings'
   [muse,states]='home volume'
   [muse,probe_url]='https://api.meta.ai/v1'
@@ -83,6 +96,8 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [opencode,install_adapter]=''
   [opencode,update_adapter]='harnesses/opencode/update.sh'
   [opencode,validate_adapter]='harnesses/opencode/validate.sh'
+  [opencode,native_helper]=''
+  [opencode,verify_label]='OPENCODE'
   [opencode,artifacts]='config'
   [opencode,states]='volume config-parent'
   [opencode,probe_url]='https://opencode.ai'
@@ -92,12 +107,17 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [codex,install_adapter]=''
   [codex,update_adapter]='harnesses/codex/update.sh'
   [codex,validate_adapter]='harnesses/codex/validate.sh'
+  [codex,native_helper]=''
+  [codex,verify_label]='CODEX'
   [codex,artifacts]='config policy'
   [codex,states]='home volume'
   [codex,probe_url]='https://auth.openai.com'
+  [codex,directory_parser]='toml'
+  [codex,directory_configs]='.codex/config.toml'
   [codex,launcher]='box-c'
   [codex,image_prefix]='box-c'
   [codex,network]='box-c'
+  [codex,state_prefix]='box-c'
   [codex,config_dir]='box-c'
   [codex,config_file]='config.toml'
   [codex,version_file]='version-codex.env'
@@ -171,9 +191,9 @@ _box_artifact_record() {
   done
   (($# == 0)) || die 'Invalid artifact record.'
 }
-_box_artifact_record muse settings harnesses/muse/config/settings.json json template settings.json /home/box/.config/muse/settings.json refresh-seed-legacy-empty 644 user 'setup launch validate verify'
+_box_artifact_record muse settings harnesses/muse/config/settings.json json live-config settings.json /home/box/.config/muse/settings.json refresh-live 644 user 'setup launch validate verify'
 _box_artifact_record opencode config harnesses/opencode/config/opencode.json json live-config opencode.json /persist/config/opencode/opencode.json refresh-live 644 user 'setup launch validate verify'
-_box_artifact_record codex config harnesses/codex/config/config.toml toml template config.toml /home/box/.codex/config.toml refresh-seed-if-absent 600 user 'setup launch validate verify'
+_box_artifact_record codex config harnesses/codex/config/config.toml toml live-config config.toml /etc/codex/config.toml refresh-live 600 user 'setup launch validate verify'
 _box_artifact_record codex policy harnesses/codex/policy/requirements.toml toml managed-image '' /etc/codex/requirements.toml managed-image 644 root 'build validate verify'
 unset -f _box_artifact_record
 
@@ -217,114 +237,180 @@ box_assert_relative_source() {
   physical=$(box_realpath -e -- "$bundle/$path") || die "Cannot resolve source: $path"
   case "$physical" in "$bundle/"*) ;; *) die "Escaping source path: $path";; esac
 }
-# Validate before setup/build/generation. All destinations and labels are unique;
-# adapter filenames are fixed, and artifact directories have no orphan assets.
-box_validate_registry() {
-  local bundle=$1 id f value a source installed role consumer pair pin label state key file kind override primary
-  bundle=$(box_realpath -e -- "$bundle") || die 'Cannot resolve bundle.'
-  local -A seen=() sources=() records=()
-  for id in $box_tool_ids; do
-    [[ "$id" =~ ^[a-z][a-z0-9-]*$ && -z "${seen[id,$id]+set}" ]] || die "Invalid/duplicate harness id: $id"
-    seen[id,$id]=1
-    for f in $box_tool_fields; do box_tool_field "$id" "$f" >/dev/null; done
-    for f in launcher config_dir version_file; do
-      value=$(box_tool_field "$id" "$f")
-      [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && -z "${seen[$f,$value]+set}" ]] || die "Invalid/duplicate $f destination: $value"
-      seen[$f,$value]=1
+# Identity slice of box_validate_registry: id shape/uniqueness, field
+# completeness, and directory parser/config paths.
+box_validate_registry_identity() {
+  local id=$1
+  local -n _seen=$2
+  local f directory_path directory_group
+  [[ "$id" =~ ^[a-z][a-z0-9-]*$ && -z "${_seen[id,$id]+set}" ]] || die "Invalid/duplicate harness id: $id"
+  _seen[id,$id]=1
+  for f in $box_tool_fields; do box_tool_field "$id" "$f" >/dev/null; done
+  case "$(box_tool_field "$id" directory_parser)" in json|toml|native) ;; *) die "Invalid directory parser: $id";; esac
+  [[ -n "$(box_tool_field "$id" directory_configs)" ]] || die "Missing directory config paths: $id"
+  for directory_group in $(box_tool_field "$id" directory_configs); do
+    local -a directory_group_paths=()
+    IFS=: read -r -a directory_group_paths <<< "$directory_group"
+    for directory_path in "${directory_group_paths[@]}"; do
+      [[ "$directory_path" != /* && "$directory_path" != *..* && "$directory_path" =~ ^[A-Za-z0-9_./-]+$ ]] || die "Invalid directory config path: $id"
     done
-    [[ "$(box_tool_field "$id" package)" == "harnesses/$id" ]] || die "Invalid package: $id"
-    for f in image_prefix network dockerfile_target git_prefix config_file; do
-      value=$(box_tool_field "$id" "$f")
-      [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && ( "$f" == config_file || -z "${seen[$f,$value]+set}" ) ]] || die "Invalid/duplicate $f: $id"
-      seen[$f,$value]=1
-    done
-    box_assert_relative_source "$bundle" "$(box_tool_field "$id" launcher)"
-    for pin in $(box_tool_field "$id" pin_keys); do
-      [[ "$pin" =~ ^[A-Z][A-Z0-9_]*$ && -z "${seen[pin,$pin]+set}" ]] || die "Invalid/duplicate pin key: $pin"
-      seen[pin,$pin]=1
-    done
-    for f in launch update validate install; do
-      value=$(box_tool_field "$id" "${f}_adapter")
-      [[ -n "$value" || "$f" == install ]] || die "Missing $f adapter: $id"
-      [[ -n "$value" ]] || continue
-      [[ "$value" == "harnesses/$id/$f.sh" ]] || die "Invalid adapter: $value"
-      box_assert_relative_source "$bundle" "$value"
-    done
-    source=$(box_tool_field "$id" version_source)
-    [[ "$source" == "harnesses/$id/$(box_tool_field "$id" version_file)" ]] || die "Pin source/install mismatch: $id"
-    box_assert_relative_source "$bundle" "$source"
-    for pair in $(box_tool_field "$id" label_pins); do
-      pin=${pair%%:*}; label=${pair#*:}
-      [[ " $(box_tool_field "$id" pin_keys) " == *" $pin "* && "$label" =~ ^[a-zA-Z0-9_.-]+$ && -z "${seen[label,$label]+set}" && -z "${seen[label-pin,$id/$pin]+set}" ]] || die "Invalid/duplicate pin label: $pair"
-      seen[label,$label]=1
-      seen[label-pin,$id/$pin]=1
-    done
-    for pin in $(box_tool_field "$id" pin_keys); do
-      [[ -n "${seen[label-pin,$id/$pin]+set}" ]] || die "Missing pin label: $id/$pin"
-    done
-    primary=0
-    for a in $(box_tool_field "$id" artifacts); do
-      [[ "$a" =~ ^[a-z][a-z0-9-]*$ && -z "${records[$id,$a]+set}" ]] || die "Invalid/duplicate artifact: $id/$a"
-      records[$id,$a]=1
-      for f in $box_artifact_fields; do box_artifact_field "$id" "$a" "$f" >/dev/null; done
-      source=$(box_artifact_field "$id" "$a" source)
-      [[ "$source" == "harnesses/$id/"* && -z "${sources[$source]+set}" ]] || die "Invalid/duplicate artifact source: $source"
-      box_assert_relative_source "$bundle" "$source"; sources[$source]=1
-      installed=$(box_artifact_field "$id" "$a" installed)
-      [[ "$installed" != "$(box_tool_field "$id" version_file)" ]] || die 'Artifact collides with installed pins.'
-      if [[ "$installed" == "$(box_tool_field "$id" config_file)" ]]; then primary=$((primary + 1)); fi
-      role=$(box_artifact_field "$id" "$a" role)
-      case "$role:$(box_artifact_field "$id" "$a" lifecycle)" in
-        template:refresh-seed-if-absent|template:refresh-seed-legacy-empty|live-config:refresh-live)
-          [[ "$installed" =~ ^[a-zA-Z0-9_.-]+$ && "$installed" != . && "$installed" != .. && -z "${seen[dest,$id/$installed]+set}" ]] || die "Invalid/duplicate install destination: $installed"
-          seen[dest,$id/$installed]=1 ;;
-        managed-image:managed-image) [[ -z "$installed" && "$(box_artifact_field "$id" "$a" owner)" == root ]] || die 'Managed policy must be image owned.' ;;
-        *) die "Invalid artifact lifecycle: $id/$a";;
-      esac
-      case "$(box_artifact_field "$id" "$a" format)" in json|toml) ;; *) die 'Invalid artifact format.';; esac
-      case "$(box_artifact_field "$id" "$a" mode)" in 600|644) ;; *) die 'Invalid artifact mode.';; esac
-      case "$role:$(box_artifact_field "$id" "$a" owner)" in template:user|live-config:user|managed-image:root) ;; *) die 'Invalid artifact owner.';; esac
-      value=$(box_artifact_field "$id" "$a" runtime)
-      [[ "$value" =~ ^/[A-Za-z0-9_./-]+$ && "/$value/" != *'/../'* && "/$value/" != *'/./'* && -z "${seen[runtime,$id/$value]+set}" ]] || die 'Invalid/duplicate runtime destination.'
-      seen[runtime,$id/$value]=1
-      value=$(box_artifact_field "$id" "$a" consumers)
-      [[ -n "$value" ]] || die "Missing artifact consumers: $id/$a"
-      for consumer in $value; do
-        case "$consumer" in setup|launch|build|validate|verify) ;; *) die "Unknown artifact consumer: $consumer";; esac
-      done
-      [[ " $value " == *' validate '* && " $value " == *' verify '* ]] || die "Missing validation consumers: $id/$a"
-      if [[ "$role" == managed-image ]]; then
-        if [[ " $value " != *' build '* ]] || ! grep -Fq "COPY $source " "$bundle/Dockerfile"; then die "Missing build consumer: $source"; fi
-      else [[ " $value " == *' setup '* && " $value " == *' launch '* ]] || die "Missing host consumers: $source"; fi
-    done
-    [[ "$primary" == 1 ]] || die "Missing primary configuration consumer: $id"
-    for state in $(box_tool_field "$id" states); do
-      [[ "$state" =~ ^[a-z][a-z0-9-]*$ && -z "${seen[state,$id/$state]+set}" ]] || die "Invalid/duplicate state: $id/$state"
-      seen[state,$id/$state]=1
-      for f in $box_state_fields; do box_state_field "$id" "$state" "$f" >/dev/null; done
-      case "$(box_state_field "$id" "$state" scope):$(box_state_field "$id" "$state" kind)" in global:bind|physical-project:bind|physical-project:volume|ephemeral:tmpfs) ;; *) die "Invalid state contract: $id/$state";; esac
-      [[ "$(box_state_field "$id" "$state" mode)" == 700 && -n "$(box_state_field "$id" "$state" reset)" ]] || die "Invalid state permissions/lifecycle: $id/$state"
-      kind=$(box_state_field "$id" "$state" kind)
-      value=$(box_state_field "$id" "$state" root)
-      if [[ "$kind" == bind ]]; then
-        [[ "$value" =~ ^[A-Za-z0-9_./-]+$ && "$value" != /* && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state root.'
-        for override in $(box_state_field "$id" "$state" override); do
-          [[ "$override" =~ ^[A-Z][A-Z0-9_]*$ ]] || die 'Invalid state override.'
-        done
-      else
-        [[ -z "$value" && -z "$(box_state_field "$id" "$state" override)" ]] || die 'Non-bind state must not declare a host root.'
-      fi
-      value=$(box_state_field "$id" "$state" runtime)
-      [[ "$value" =~ ^/[A-Za-z0-9_./-]+$ && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state runtime path.'
-    done
-    while IFS= read -r file; do [[ -n "${sources[${file#"$bundle/"}]+set}" ]] || die "Artifact lacks consumer: $file"; done < <(find "$bundle/harnesses/$id/config" "$bundle/harnesses/$id/policy" -type f 2>/dev/null)
   done
+}
+
+# Destinations slice: launcher/config/version destinations, package, naming
+# fields, launcher source, and pin-key uniqueness.
+box_validate_registry_destinations() {
+  local id=$1 bundle=$2
+  local -n _seen=$3
+  local f value pin
+  for f in launcher config_dir version_file; do
+    value=$(box_tool_field "$id" "$f")
+    [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && -z "${_seen[$f,$value]+set}" ]] || die "Invalid/duplicate $f destination: $value"
+    _seen[$f,$value]=1
+  done
+  [[ "$(box_tool_field "$id" package)" == "harnesses/$id" ]] || die "Invalid package: $id"
+  for f in image_prefix network dockerfile_target git_prefix config_file; do
+    value=$(box_tool_field "$id" "$f")
+    [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && ( "$f" == config_file || -z "${_seen[$f,$value]+set}" ) ]] || die "Invalid/duplicate $f: $id"
+    _seen[$f,$value]=1
+  done
+  box_assert_relative_source "$bundle" "$(box_tool_field "$id" launcher)"
+  for pin in $(box_tool_field "$id" pin_keys); do
+    [[ "$pin" =~ ^[A-Z][A-Z0-9_]*$ && -z "${_seen[pin,$pin]+set}" ]] || die "Invalid/duplicate pin key: $pin"
+    _seen[pin,$pin]=1
+  done
+}
+
+# Adapters slice: launch/update/validate/install adapters, native helper,
+# version source, and pin labels.
+box_validate_registry_adapters() {
+  local id=$1 bundle=$2
+  local -n _seen=$3
+  local f value source pair pin label
+  for f in launch update validate install; do
+    value=$(box_tool_field "$id" "${f}_adapter")
+    [[ -n "$value" || "$f" == install ]] || die "Missing $f adapter: $id"
+    [[ -n "$value" ]] || continue
+    [[ "$value" == "harnesses/$id/$f.sh" ]] || die "Invalid adapter: $value"
+    box_assert_relative_source "$bundle" "$value"
+  done
+  value=$(box_tool_field "$id" native_helper)
+  if [[ -n "$value" ]]; then
+    [[ "$value" == "harnesses/$id/native.sh" ]] || die "Invalid native helper: $value"
+    box_assert_relative_source "$bundle" "$value"
+  fi
+  source=$(box_tool_field "$id" version_source)
+  [[ "$source" == "harnesses/$id/$(box_tool_field "$id" version_file)" ]] || die "Pin source/install mismatch: $id"
+  box_assert_relative_source "$bundle" "$source"
+  for pair in $(box_tool_field "$id" label_pins); do
+    pin=${pair%%:*}; label=${pair#*:}
+    [[ " $(box_tool_field "$id" pin_keys) " == *" $pin "* && "$label" =~ ^[a-zA-Z0-9_.-]+$ && -z "${_seen[label,$label]+set}" && -z "${_seen[label-pin,$id/$pin]+set}" ]] || die "Invalid/duplicate pin label: $pair"
+    _seen[label,$label]=1
+    _seen[label-pin,$id/$pin]=1
+  done
+  for pin in $(box_tool_field "$id" pin_keys); do
+    [[ -n "${_seen[label-pin,$id/$pin]+set}" ]] || die "Missing pin label: $id/$pin"
+  done
+}
+
+# Artifacts slice: per-artifact records, sources, lifecycle/format/mode/owner,
+# runtime destinations, and consumers, plus the primary-config check.
+box_validate_registry_artifacts() {
+  local id=$1 bundle=$2
+  local -n _seen=$3 _sources=$4 _records=$5
+  local a f source installed role consumer value primary
+  primary=0
+  for a in $(box_tool_field "$id" artifacts); do
+    [[ "$a" =~ ^[a-z][a-z0-9-]*$ && -z "${_records[$id,$a]+set}" ]] || die "Invalid/duplicate artifact: $id/$a"
+    _records[$id,$a]=1
+    for f in $box_artifact_fields; do box_artifact_field "$id" "$a" "$f" >/dev/null; done
+    source=$(box_artifact_field "$id" "$a" source)
+    [[ "$source" == "harnesses/$id/"* && -z "${_sources[$source]+set}" ]] || die "Invalid/duplicate artifact source: $source"
+    box_assert_relative_source "$bundle" "$source"; _sources[$source]=1
+    installed=$(box_artifact_field "$id" "$a" installed)
+    [[ "$installed" != "$(box_tool_field "$id" version_file)" ]] || die 'Artifact collides with installed pins.'
+    if [[ "$installed" == "$(box_tool_field "$id" config_file)" ]]; then primary=$((primary + 1)); fi
+    role=$(box_artifact_field "$id" "$a" role)
+    case "$role:$(box_artifact_field "$id" "$a" lifecycle)" in
+      template:refresh-seed-if-absent|template:refresh-seed-legacy-empty|live-config:refresh-live)
+        [[ "$installed" =~ ^[a-zA-Z0-9_.-]+$ && "$installed" != . && "$installed" != .. && -z "${_seen[dest,$id/$installed]+set}" ]] || die "Invalid/duplicate install destination: $installed"
+        _seen[dest,$id/$installed]=1 ;;
+      managed-image:managed-image) [[ -z "$installed" && "$(box_artifact_field "$id" "$a" owner)" == root ]] || die 'Managed policy must be image owned.' ;;
+      *) die "Invalid artifact lifecycle: $id/$a";;
+    esac
+    case "$(box_artifact_field "$id" "$a" format)" in json|toml) ;; *) die 'Invalid artifact format.';; esac
+    case "$(box_artifact_field "$id" "$a" mode)" in 600|644) ;; *) die 'Invalid artifact mode.';; esac
+    case "$role:$(box_artifact_field "$id" "$a" owner)" in template:user|live-config:user|managed-image:root) ;; *) die 'Invalid artifact owner.';; esac
+    value=$(box_artifact_field "$id" "$a" runtime)
+    [[ "$value" =~ ^/[A-Za-z0-9_./-]+$ && "/$value/" != *'/../'* && "/$value/" != *'/./'* && -z "${_seen[runtime,$id/$value]+set}" ]] || die 'Invalid/duplicate runtime destination.'
+    _seen[runtime,$id/$value]=1
+    value=$(box_artifact_field "$id" "$a" consumers)
+    [[ -n "$value" ]] || die "Missing artifact consumers: $id/$a"
+    for consumer in $value; do
+      case "$consumer" in setup|launch|build|validate|verify) ;; *) die "Unknown artifact consumer: $consumer";; esac
+    done
+    [[ " $value " == *' validate '* && " $value " == *' verify '* ]] || die "Missing validation consumers: $id/$a"
+    if [[ "$role" == managed-image ]]; then
+      if [[ " $value " != *' build '* ]] || ! grep -Fq "COPY $source " "$bundle/Dockerfile"; then die "Missing build consumer: $source"; fi
+    else [[ " $value " == *' setup '* && " $value " == *' launch '* ]] || die "Missing host consumers: $source"; fi
+  done
+  [[ "$primary" == 1 ]] || die "Missing primary configuration consumer: $id"
+}
+
+# States slice: per-state contracts, then the config/policy asset sweep
+# (stays last to preserve check order).
+box_validate_registry_states() {
+  local id=$1 bundle=$2
+  local -n _seen=$3 _sources=$4
+  local state f kind value override file
+  for state in $(box_tool_field "$id" states); do
+    [[ "$state" =~ ^[a-z][a-z0-9-]*$ && -z "${_seen[state,$id/$state]+set}" ]] || die "Invalid/duplicate state: $id/$state"
+    _seen[state,$id/$state]=1
+    for f in $box_state_fields; do box_state_field "$id" "$state" "$f" >/dev/null; done
+    case "$(box_state_field "$id" "$state" scope):$(box_state_field "$id" "$state" kind)" in global:bind|physical-project:bind|physical-project:volume|ephemeral:tmpfs) ;; *) die "Invalid state contract: $id/$state";; esac
+    [[ "$(box_state_field "$id" "$state" mode)" == 700 && -n "$(box_state_field "$id" "$state" reset)" ]] || die "Invalid state permissions/lifecycle: $id/$state"
+    kind=$(box_state_field "$id" "$state" kind)
+    value=$(box_state_field "$id" "$state" root)
+    if [[ "$kind" == bind ]]; then
+      [[ "$value" =~ ^[A-Za-z0-9_./-]+$ && "$value" != /* && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state root.'
+      for override in $(box_state_field "$id" "$state" override); do
+        [[ "$override" =~ ^[A-Z][A-Z0-9_]*$ ]] || die 'Invalid state override.'
+      done
+    else
+      [[ -z "$value" && -z "$(box_state_field "$id" "$state" override)" ]] || die 'Non-bind state must not declare a host root.'
+    fi
+    value=$(box_state_field "$id" "$state" runtime)
+    [[ "$value" =~ ^/[A-Za-z0-9_./-]+$ && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state runtime path.'
+  done
+  while IFS= read -r file; do [[ -n "${_sources[${file#"$bundle/"}]+set}" ]] || die "Artifact lacks consumer: $file"; done < <(find "$bundle/harnesses/$id/config" "$bundle/harnesses/$id/policy" -type f 2>/dev/null)
+}
+
+# Orphans slice: no artifact/state records outside the declared per-id sets.
+box_validate_registry_orphans() {
+  local -n _seen=$1 _records=$2
+  local key id a state f
   for key in "${!_BOX_ARTIFACTS[@]}"; do
     IFS=, read -r id a f <<<"$key"
-    [[ " $box_tool_ids " == *" $id "* && -n "${records[$id,$a]+set}" && " $box_artifact_fields " == *" $f "* ]] || die "Orphan artifact record: $id/$a"
+    [[ " $box_tool_ids " == *" $id "* && -n "${_records[$id,$a]+set}" && " $box_artifact_fields " == *" $f "* ]] || die "Orphan artifact record: $id/$a"
   done
   for key in "${!_BOX_STATES[@]}"; do
     IFS=, read -r id state f <<<"$key"
-    [[ -n "${seen[state,$id/$state]+set}" && " $box_state_fields " == *" $f "* ]] || die "Orphan state record: $id/$state"
+    [[ -n "${_seen[state,$id/$state]+set}" && " $box_state_fields " == *" $f "* ]] || die "Orphan state record: $id/$state"
   done
+}
+
+# Validate before setup/build/generation. All destinations and labels are unique;
+# adapter filenames are fixed, and artifact directories have no orphan assets.
+box_validate_registry() {
+  local bundle=$1 id
+  bundle=$(box_realpath -e -- "$bundle") || die 'Cannot resolve bundle.'
+  local -A seen=() sources=() records=()
+  for id in $box_tool_ids; do
+    box_validate_registry_identity "$id" seen
+    box_validate_registry_destinations "$id" "$bundle" seen
+    box_validate_registry_adapters "$id" "$bundle" seen
+    box_validate_registry_artifacts "$id" "$bundle" seen sources records
+    box_validate_registry_states "$id" "$bundle" seen sources
+  done
+  box_validate_registry_orphans seen records
 }

@@ -11,18 +11,7 @@ resolve_opencode() {
   if [[ -n "${BOX_UPDATE_OPENCODE_NPM_INTEGRITY:-}${BOX_UPDATE_OPENCODE_NPM_INTEGRITY_LINUX_X64:-}${BOX_UPDATE_OPENCODE_NPM_INTEGRITY_LINUX_ARM64:-}${BOX_UPDATE_OPENCODE_NODE_VERSION:-}${BOX_UPDATE_OPENCODE_NODESOURCE_FINGERPRINT:-}${BOX_UPDATE_NODE_VERSION:-}${BOX_UPDATE_NODESOURCE_FINGERPRINT:-}" ]]; then
     die 'OpenCode v1 npm/NodeSource pins are retired (v2 uses standalone SHA256 archives). Set BOX_UPDATE_OPENCODE_VERSION plus BOX_UPDATE_OPENCODE_SHA256_AMD64 and BOX_UPDATE_OPENCODE_SHA256_ARM64 together; see docs/upgrades.md.'
   fi
-  if [[ -n "${BOX_UPDATE_OPENCODE_VERSION:-}" ]]; then
-    [[ -z "$explicit" ]] || die 'Conflicting OpenCode pins: --opencode and BOX_UPDATE_OPENCODE_VERSION are both set.'
-    want_opencode_version=$BOX_UPDATE_OPENCODE_VERSION
-    want_opencode_amd64=${BOX_UPDATE_OPENCODE_SHA256_AMD64:-}
-    want_opencode_arm64=${BOX_UPDATE_OPENCODE_SHA256_ARM64:-}
-    [[ -n "$want_opencode_amd64" && -n "$want_opencode_arm64" ]] \
-      || die 'Partial OpenCode seed: set BOX_UPDATE_OPENCODE_VERSION plus BOX_UPDATE_OPENCODE_SHA256_AMD64 and BOX_UPDATE_OPENCODE_SHA256_ARM64 together.'
-    return 0
-  fi
-  if [[ -n "${BOX_UPDATE_OPENCODE_SHA256_AMD64:-}${BOX_UPDATE_OPENCODE_SHA256_ARM64:-}" ]]; then
-    die 'Partial OpenCode seed: set BOX_UPDATE_OPENCODE_VERSION plus BOX_UPDATE_OPENCODE_SHA256_AMD64 and BOX_UPDATE_OPENCODE_SHA256_ARM64 together.'
-  fi
+  if box_update_seed OPENCODE "$explicit" --opencode OpenCode want_opencode_version want_opencode_amd64 want_opencode_arm64; then return 0; fi
   if [[ -n "$explicit" ]]; then
     version=$explicit
   else
@@ -40,12 +29,9 @@ resolve_opencode() {
     if [[ "$arch" == amd64 ]]; then platform=x64-baseline; else platform=arm64; fi
     url="$opencode_files_base/$version/opencode-linux-$platform.tar.gz"
     file=$(box_mktemp_file opencode-artifact) || die 'Cannot stage OpenCode artifact.'
-    if ! curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --connect-timeout 15 --max-time 600 -o "$file" -- "$url"; then
-      rm -f -- "$file"; die "Cannot download OpenCode asset: opencode-linux-$platform.tar.gz@$version"
-    fi
-    computed=$(sha256sum -- "$file"); computed=${computed%% *}
+    computed=$(box_fetch_verify "$url" "$file") || die "Cannot download OpenCode asset: opencode-linux-$platform.tar.gz@$version"
     [[ "$computed" =~ ^[0-9a-f]{64}$ ]] || { rm -f -- "$file"; die "Invalid OpenCode digest for $arch@$version."; }
-    if ! python3 "$bundle_dir/harnesses/opencode/archive.py" "$file" "$arch"; then
+    if ! python3 -I "$bundle_dir/harnesses/opencode/archive.py" "$file" "$arch"; then
       rm -f -- "$file"; die "Corrupted/incomplete OpenCode asset: $arch@$version"
     fi
     rm -f -- "$file"

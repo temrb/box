@@ -35,6 +35,49 @@ _need_docker() {
   fi
 }
 
+# Offline docker double for --dry-run-only tests. The launchers pin a trusted
+# PATH and run under `bash -p`, so neither a PATH entry nor an exported shell
+# function can inject the auto-runtime-style docker_cmd stub into the real
+# entry point — and box_docker_cli dies without a docker binary even though
+# --dry-run never executes it (box_docker_exec prints and exits before any
+# assert). The equivalent double is therefore a per-test bundle copy whose
+# launcher PATH lines also cover a stub bin dir; the stub docker is
+# presence-only and fails closed if ever executed. Fixture reads keep using
+# $BUNDLE_DIR (the pristine checkout); only the executed launcher path moves
+# to $STUB_BUNDLE. Exactly one test below keeps _need_docker as the
+# real-binary canary.
+_make_stubbin() {
+  if box_denylisted_system_path "$TEST_PROJ"; then
+    skip "env-blocked: test project is on the launcher project denylist"
+  fi
+  STUBBIN="$TEST_TMP/stubbin"
+  mkdir -p -- "$STUBBIN"
+  printf '#!/bin/bash\nprintf "stub docker: must not execute on --dry-run\\n" >&2\nexit 125\n' \
+    >"$STUBBIN/docker"
+  chmod +x -- "$STUBBIN/docker"
+  if command -v python3 >/dev/null 2>&1; then
+    ln -sf -- "$(command -v python3)" "$STUBBIN/python3"
+  fi
+}
+
+_patch_launcher_path() {
+  # $1: launcher file — prepend the stub bin dir to its fixed PATH line.
+  sed -i 's|^PATH=/usr/local/sbin|PATH='"$STUBBIN"':/usr/local/sbin|' "$1"
+  grep -Fq -- "PATH=$STUBBIN:/usr/local/sbin" "$1"
+}
+
+_stub_dryrun_bundle() {
+  # Full bundle copy with patched launcher PATH lines; sets $STUB_BUNDLE.
+  _make_stubbin
+  STUB_BUNDLE="$TEST_TMP/stub-bundle"
+  rm -rf -- "$STUB_BUNDLE"
+  cp -r -- "$BUNDLE_DIR" "$STUB_BUNDLE"
+  for _stub_l in box-m box-o box-c box-m-login; do
+    _patch_launcher_path "$STUB_BUNDLE/$_stub_l" || return 1
+  done
+  unset _stub_l
+}
+
 @test "box-m --dry-run: runsc default plus hardening flags" {
   _need_docker
   _muse_dry_run_env
@@ -48,10 +91,10 @@ _need_docker() {
 }
 
 @test "box-m --dry-run: no secret values leak into output" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run --version
+  run "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   # --dry-run skips credentials loading entirely (fail-closed file access),
   # so no provider key may appear by name=value nor by value.
@@ -60,22 +103,22 @@ _need_docker() {
 }
 
 @test "box-m --dry-run: forwards no provider keys (dry-run exports nothing)" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run --version
+  run "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" != *"--env MUSE_CODE_API_KEY"* ]]
 }
 
 @test "box-m --dry-run: forwards set terminal keys NAME-only, skips unset" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
   run env -u TERM -u COLORTERM -u TERM_PROGRAM -u TERM_PROGRAM_VERSION \
     -u NO_COLOR -u FORCE_COLOR -u CLICOLOR_FORCE \
     TERM=xterm-256color COLORTERM=truecolor \
-    "$BUNDLE_DIR/box-m" --dry-run --version
+    "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"--env TERM"* ]]
   [[ "$output" == *"--env COLORTERM"* ]]
@@ -90,7 +133,7 @@ _need_docker() {
 }
 
 @test "box-m --dry-run: git identity inferred from global git config" {
-  _need_docker
+  _stub_dryrun_bundle
   if ! command -v git >/dev/null; then skip "no git binary"; fi
   _muse_dry_run_env
   unset BOX_M_GIT_NAME BOX_M_GIT_EMAIL BOX_O_GIT_NAME BOX_O_GIT_EMAIL BOX_C_GIT_NAME BOX_C_GIT_EMAIL
@@ -99,7 +142,7 @@ _need_docker() {
   git config --global user.name 'InferredName'
   git config --global user.email 'inferred@example.com'
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run --version
+  run "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"GIT_AUTHOR_NAME=InferredName"* ]]
   [[ "$output" == *"GIT_AUTHOR_EMAIL=inferred@example.com"* ]]
@@ -107,20 +150,20 @@ _need_docker() {
 }
 
 @test "box-m --dry-run: explicit fallback selects runc with WARNING" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --docker-fallback --dry-run --version
+  run "$STUB_BUNDLE/box-m" --docker-fallback --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"--runtime=runc"* ]]
   [[ "$output" == *"explicit hardened-runc fallback"* ]]
 }
 
 @test "launchers --dry-run: --runsc stays on gVisor with runtime signal" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --runsc --dry-run --version
+  run "$STUB_BUNDLE/box-m" --runsc --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"--runtime=runsc"* ]]
   [[ "$output" != *"explicit hardened-runc fallback"* ]]
@@ -128,29 +171,29 @@ _need_docker() {
 }
 
 @test "launchers --dry-run: fallback carries runc runtime signal" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --docker-fallback --dry-run --version
+  run "$STUB_BUNDLE/box-m" --docker-fallback --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"BOX_RUNTIME=runc"* ]]
 }
 
 @test "box-m --dry-run: --yolo counts as explicit opt-out (no double-inject)" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run -- --yolo
+  run "$STUB_BUNDLE/box-m" --dry-run -- --yolo
   [ "$status" -eq 0 ]
   [[ "$output" == *"--yolo"* ]]
   [[ "$output" != *"--disable-sandbox"* ]]
 }
 
 @test "box-o --dry-run: runsc default plus hardening flags" {
-  _need_docker
+  _stub_dryrun_bundle
   _opencode_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-o" --dry-run --version
+  run "$STUB_BUNDLE/box-o" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"--runtime=runsc"* ]]
   [[ "$output" == *"--cap-drop=ALL"* ]]
@@ -158,20 +201,20 @@ _need_docker() {
 }
 
 @test "box-o --dry-run: no secret values leak into output" {
-  _need_docker
+  _stub_dryrun_bundle
   _opencode_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-o" --dry-run --version
+  run "$STUB_BUNDLE/box-o" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" != *"MUSE_CODE_API_KEY="* ]]
   [[ "$output" != *"test-value"* ]]
 }
 
 @test "box-o --dry-run: forwards nothing (pure /connect)" {
-  _need_docker
+  _stub_dryrun_bundle
   _opencode_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-o" --dry-run --version
+  run "$STUB_BUNDLE/box-o" --dry-run --version
   [ "$status" -eq 0 ]
   # The live proof is the empty registry forward_keys (tools.bats) plus the
   # empty-set no-op (run.bats); dry-run must carry no NAME-only
@@ -180,13 +223,13 @@ _need_docker() {
 }
 
 @test "box-o --dry-run: forwards set terminal keys NAME-only, skips unset" {
-  _need_docker
+  _stub_dryrun_bundle
   _opencode_dry_run_env
   cd -- "$TEST_PROJ"
   run env -u TERM -u COLORTERM -u TERM_PROGRAM -u TERM_PROGRAM_VERSION \
     -u NO_COLOR -u FORCE_COLOR -u CLICOLOR_FORCE \
     TERM=xterm-256color \
-    "$BUNDLE_DIR/box-o" --dry-run --version
+    "$STUB_BUNDLE/box-o" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"--env TERM"* ]]
   [[ "$output" != *"--env TERM="* ]]
@@ -206,10 +249,11 @@ _installed_layout() {
 }
 
 @test "box-m --dry-run: installed layout tags from the config-file version" {
-  _need_docker
+  _make_stubbin
   _muse_dry_run_env
   sed -i 's/^MUSE_VERSION=.*/MUSE_VERSION=9.9.9/' "$vf"
   _installed_layout
+  _patch_launcher_path "$inst/box-m"
   cd -- "$TEST_PROJ"
   run "$inst/box-m" --dry-run --version
   [ "$status" -eq 0 ]
@@ -217,10 +261,11 @@ _installed_layout() {
 }
 
 @test "box-o --dry-run: installed layout tags from the config-file version" {
-  _need_docker
+  _make_stubbin
   _opencode_dry_run_env
   sed -i 's/^OPENCODE_VERSION=.*/OPENCODE_VERSION=9.9.9/' "$vf"
   _installed_layout
+  _patch_launcher_path "$inst/box-o"
   cd -- "$TEST_PROJ"
   run "$inst/box-o" --dry-run --version
   [ "$status" -eq 0 ]
@@ -228,24 +273,24 @@ _installed_layout() {
 }
 
 @test "box-m --dry-run: default bypass is injected for tool args" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run -- --foo
+  run "$STUB_BUNDLE/box-m" --dry-run -- --foo
   [ "$status" -eq 0 ]
   [[ "$output" == *"--disable-sandbox"* ]]
 }
 
 @test "Muse session subcommands precede their bypass and diagnostics remain bare" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd "$TEST_PROJ"
   for command in exec resume serve; do
-    run "$BUNDLE_DIR/box-m" --dry-run "$command" --provider echo
+    run "$STUB_BUNDLE/box-m" --dry-run "$command" --provider echo
     [ "$status" -eq 0 ]
     [[ "$output" == *"$command --disable-sandbox --provider echo"* ]]
   done
-  run "$BUNDLE_DIR/box-m" --dry-run config status
+  run "$STUB_BUNDLE/box-m" --dry-run config status
   [ "$status" -eq 0 ]
   [[ "$output" != *--disable-sandbox* ]]
 }
@@ -258,74 +303,71 @@ _installed_layout() {
   run grep -rho 'BOX_M_[A-Z_]*FLAG[A-Z_]*' "$BUNDLE_DIR/harnesses/muse/launch.sh" "$BUNDLE_DIR/lib/"
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | sort -u)" = "BOX_M_INNER_FLAG" ]
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   BOX_M_BOX_FLAG='--evil-flag'
   export BOX_M_BOX_FLAG
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run -- --foo
+  run "$STUB_BUNDLE/box-m" --dry-run -- --foo
   [ "$status" -eq 0 ]
   [[ "$output" != *"--evil-flag"* ]]
   [[ "$output" == *"--disable-sandbox"* ]]
 }
 
 @test "box-m honors an empty INNER_FLAG (bypass disabled)" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   BOX_M_INNER_FLAG=
   export BOX_M_INNER_FLAG
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run -- --foo
+  run "$STUB_BUNDLE/box-m" --dry-run -- --foo
   [ "$status" -eq 0 ]
   [[ "$output" != *"--disable-sandbox"* ]]
 }
 
 @test "box-m honors a custom INNER_FLAG value end-to-end" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   BOX_M_INNER_FLAG='--new-flag'
   export BOX_M_INNER_FLAG
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run -- --foo
+  run "$STUB_BUNDLE/box-m" --dry-run -- --foo
   [ "$status" -eq 0 ]
   [[ "$output" == *"--new-flag"* ]]
   [[ "$output" != *"--disable-sandbox"* ]]
 }
 
 @test "box-m --dry-run: preserves downgraded settings without mutation" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   persist="$TEST_TMP/muse-config"
   mkdir -p -- "$persist"
-  jq '.approval_mode = "never" | .approval_judge = false
-      | .telemetry.enabled = true | .api.base_url = "https://evil.example"
+  jq '.telemetry.enabled = true | .endpoint_transport.base_url = "https://evil.example"
       | .model = "user-model"' \
     -- "$cfg" >"$persist/settings.json"
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run --version
+  run "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
-  [ "$(jq -r '.approval_mode' -- "$persist/settings.json")" = "never" ]
-  [ "$(jq -r '.approval_judge' -- "$persist/settings.json")" = "false" ]
   [ "$(jq -r '.telemetry.enabled' -- "$persist/settings.json")" = "true" ]
-  [ "$(jq -r '.api.base_url' -- "$persist/settings.json")" = "https://evil.example" ]
+  [ "$(jq -r '.endpoint_transport.base_url' -- "$persist/settings.json")" = "https://evil.example" ]
   [ "$(jq -r '.model' -- "$persist/settings.json")" = "user-model" ]
 }
 
 @test "box-m --dry-run: does not create persistent settings for theme import" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   mkdir -p -- "$HOME/.config/muse"
   printf '{"tui":{"theme":"dracula","color_depth":"truecolor"}}\n' \
     >"$HOME/.config/muse/settings.json"
   cd -- "$TEST_PROJ"
-  run env -u XDG_CONFIG_HOME "$BUNDLE_DIR/box-m" --dry-run --version
+  run env -u XDG_CONFIG_HOME "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [ ! -e "$TEST_TMP/muse-config" ]
   [ ! -e "$HOME/.config/box-m/docker-cli" ]
 }
 
 @test "box-m --dry-run: keeps an existing sandbox theme over the host theme" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   mkdir -p -- "$HOME/.config/muse"
   printf '{"tui":{"theme":"dracula"}}\n' >"$HOME/.config/muse/settings.json"
@@ -333,13 +375,13 @@ _installed_layout() {
   mkdir -p -- "$persist"
   jq '.tui = {"theme":"monokai"}' -- "$cfg" >"$persist/settings.json"
   cd -- "$TEST_PROJ"
-  run env -u XDG_CONFIG_HOME "$BUNDLE_DIR/box-m" --dry-run --version
+  run env -u XDG_CONFIG_HOME "$STUB_BUNDLE/box-m" --dry-run --version
   [ "$status" -eq 0 ]
   [ "$(jq -r '.tui.theme' -- "$persist/settings.json")" = "monokai" ]
 }
 
 @test "launchers reject a launcher flag after --shell" {
-  _need_docker
+  # No docker gate: arg parsing fails before box_docker_cli resolves a binary.
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
   run "$BUNDLE_DIR/box-m" --shell --dry-run
@@ -363,10 +405,10 @@ _installed_layout() {
 }
 
 @test "box-m --dry-run --shell carries the entrypoint plus passthrough tail" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m" --dry-run --shell -c 'echo hi'
+  run "$STUB_BUNDLE/box-m" --dry-run --shell -c 'echo hi'
   [ "$status" -eq 0 ]
   [[ "$output" == *"--entrypoint=/bin/bash"* ]]
   [[ "$output" == *"-c"* ]]
@@ -376,10 +418,10 @@ _installed_layout() {
 }
 
 @test "box-o --dry-run --shell carries the entrypoint plus passthrough tail" {
-  _need_docker
+  _stub_dryrun_bundle
   _opencode_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-o" --dry-run --shell -c 'echo hi'
+  run "$STUB_BUNDLE/box-o" --dry-run --shell -c 'echo hi'
   [ "$status" -eq 0 ]
   [[ "$output" == *"--entrypoint=/usr/local/bin/box-opencode"* ]]
   [[ "$output" == *"BOX_OPENCODE_SHELL=1"* ]]
@@ -414,19 +456,19 @@ _installed_layout() {
 }
 
 @test "box-m-login --dry-run delegates to the launcher default runtime" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m-login" --dry-run
+  run "$STUB_BUNDLE/box-m-login" --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"--runtime=runsc"* ]]
 }
 
 @test "box-m-login --runsc --dry-run threads explicit gVisor" {
-  _need_docker
+  _stub_dryrun_bundle
   _muse_dry_run_env
   cd -- "$TEST_PROJ"
-  run "$BUNDLE_DIR/box-m-login" --runsc --dry-run
+  run "$STUB_BUNDLE/box-m-login" --runsc --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"--runtime=runsc"* ]]
   [[ "$output" != *"explicit hardened-runc fallback"* ]]
@@ -479,4 +521,64 @@ _muse_login_stub() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"login failed: boom"* ]]
   [[ "$output" != *"no device URL was detected"* ]]
+}
+
+@test "box-m-login forwards an explicit workspace root" {
+  _muse_login_stub
+  printf '#!/bin/bash\nprintf "%%s\\n" "$@"\n' >"$stub/box-m"
+  chmod +x "$stub/box-m"
+  cd "$TEST_PROJ"
+  run "$stub/box-m-login" --project-root "$TEST_PROJ"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *--project-root*"$TEST_PROJ"*login* ]]
+}
+
+@test "login wrapper-only TERM waits for delegated cleanup" {
+  _muse_login_stub
+  cat >"$stub/box-m" <<'STUB'
+#!/bin/bash
+trap 'printf cleaned >"$HOME/cleaned"; exit 143' TERM
+printf '%s' "$$" >"$HOME/login-pid"
+while :; do sleep 0.1; done
+STUB
+  chmod +x "$stub/box-m"
+  "$stub/box-m-login" >"$TEST_TMP/login.log" 2>&1 &
+  wrapper=$!
+  for ((i=0; i<100; i++)); do
+    [ ! -s "$HOME/login-pid" ] || break
+    sleep 0.05
+  done
+  [ -s "$HOME/login-pid" ]
+  delegated=$(cat "$HOME/login-pid")
+  kill -TERM "$wrapper"
+  rc=0
+  wait "$wrapper" || rc=$?
+  [ "$rc" -eq 143 ]
+  [ -e "$HOME/cleaned" ]
+  ! kill -0 "$delegated" 2>/dev/null
+}
+
+@test "login process-group TERM waits for delegated cleanup" {
+  _muse_login_stub
+  cat >"$stub/box-m" <<'STUB'
+#!/bin/bash
+trap 'trap "" TERM; printf cleaned >"$HOME/group-cleaned"; exit 143' TERM
+printf '%s' "$$" >"$HOME/group-pid"
+while :; do sleep 0.1; done
+STUB
+  chmod +x "$stub/box-m"
+  setsid "$stub/box-m-login" >"$TEST_TMP/group.log" 2>&1 &
+  wrapper=$!
+  for ((i=0; i<100; i++)); do
+    [ ! -s "$HOME/group-pid" ] || break
+    sleep 0.05
+  done
+  [ -s "$HOME/group-pid" ]
+  delegated=$(cat "$HOME/group-pid")
+  kill -TERM -- "-$wrapper"
+  rc=0
+  wait "$wrapper" || rc=$?
+  [ "$rc" -eq 143 ]
+  [ -e "$HOME/group-cleaned" ]
+  ! kill -0 "$delegated" 2>/dev/null
 }

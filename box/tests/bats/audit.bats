@@ -1,5 +1,50 @@
 load helpers
 
+# Offline docker double for --dry-run-only tests (same design as
+# launchers.bats, duplicated: helpers.bash is shared and out of scope).
+# The launchers pin a trusted PATH and run under `bash -p`, so neither a PATH
+# entry nor an exported shell function can inject the auto-runtime-style
+# docker_cmd stub into the real entry point — and box_docker_cli dies without
+# a docker binary even though --dry-run never executes it (box_docker_exec
+# prints and exits before any assert). The equivalent double is therefore a
+# per-test bundle copy whose launcher PATH lines also cover a stub bin dir
+# (plus a python3 symlink when the test env has one, for TOML configs); the
+# stub docker is presence-only and fails closed if ever executed. Fixture
+# reads keep using $BUNDLE_DIR; only the executed launcher path moves to
+# $STUB_BUNDLE. Tests skip (not fail) when the sandbox project root itself is
+# on the launcher project denylist.
+_make_stubbin() {
+  if box_denylisted_system_path "$TEST_PROJ"; then
+    skip "env-blocked: test project is on the launcher project denylist"
+  fi
+  STUBBIN="$TEST_TMP/stubbin"
+  mkdir -p -- "$STUBBIN"
+  printf '#!/bin/bash\nprintf "stub docker: must not execute on --dry-run\\n" >&2\nexit 125\n' \
+    >"$STUBBIN/docker"
+  chmod +x -- "$STUBBIN/docker"
+  if command -v python3 >/dev/null 2>&1; then
+    ln -sf -- "$(command -v python3)" "$STUBBIN/python3"
+  fi
+}
+
+_patch_launcher_path() {
+  # $1: launcher file — prepend the stub bin dir to its fixed PATH line.
+  sed -i 's|^PATH=/usr/local/sbin|PATH='"$STUBBIN"':/usr/local/sbin|' "$1"
+  grep -Fq -- "PATH=$STUBBIN:/usr/local/sbin" "$1"
+}
+
+_stub_dryrun_bundle() {
+  # Full bundle copy with patched launcher PATH lines; sets $STUB_BUNDLE.
+  _make_stubbin
+  STUB_BUNDLE="$TEST_TMP/stub-bundle"
+  rm -rf -- "$STUB_BUNDLE"
+  cp -r -- "$BUNDLE_DIR" "$STUB_BUNDLE"
+  for _stub_l in box-m box-o box-c box-m-login; do
+    _patch_launcher_path "$STUB_BUNDLE/$_stub_l" || return 1
+  done
+  unset _stub_l
+}
+
 codex_fixture() {
   export BOX_C_CONFIG="$TEST_TMP/config.toml"
   export BOX_C_VERSION_FILE="$TEST_TMP/version-codex.env"
@@ -11,6 +56,7 @@ codex_fixture() {
   : >"$BOX_C_ENV_FILE"
   chmod 600 "$BOX_C_ENV_FILE"
   script_dir=$BUNDLE_DIR
+  git -C "$TEST_PROJ" init -q
   cd "$TEST_PROJ"
 }
 
@@ -227,8 +273,9 @@ codex_fixture() {
 }
 
 @test "Codex dry-run is read-only and isolates physical projects under an overridden root" {
+  _stub_dryrun_bundle
   codex_fixture
-  run "$BUNDLE_DIR/box-c" --dry-run login
+  run "$STUB_BUNDLE/box-c" --dry-run login
   [ "$status" -eq 0 ]
   [[ "$output" == *login*--device-auth* ]]
   hash=$(printf '%s' "$TEST_PROJ" | sha256sum); hash=${hash:0:20}
@@ -236,45 +283,60 @@ codex_fixture() {
   [ ! -e "$BOX_C_STATE_ROOT" ]
   [ ! -e "$HOME/.config" ]
   mkdir "$PROJ_ROOT/second"
+  git -C "$PROJ_ROOT/second" init -q
   cd "$PROJ_ROOT/second"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" != *"$BOX_C_STATE_ROOT/$hash/codex-home"* ]]
   [[ "$output" != *--env\ OPENAI_API_KEY* ]]
 }
 
 @test "Codex protects both root spellings and rejects conflicts before mutation" {
+  _stub_dryrun_bundle
   codex_fixture
   export BOX_C_STATE_DIR="$TEST_TMP/legacy-root"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -ne 0 ]
   [ ! -e "$BOX_C_STATE_ROOT" ]
   [ ! -e "$BOX_C_STATE_DIR" ]
   unset BOX_C_STATE_ROOT
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"$BOX_C_STATE_DIR/"*codex-home* ]]
   export BOX_C_STATE_DIR="$TEST_PROJ/forbidden"
-  run "$BUNDLE_DIR/box-c" --dry-run --version
+  run "$STUB_BUNDLE/box-c" --dry-run --version
   [ "$status" -ne 0 ]
   [ ! -e "$BOX_C_STATE_DIR" ]
 }
 
-@test "Codex preparation preserves preferences and empty native config across restarts" {
+@test "Codex preparation resets preferences and preserves trust and state across restarts" {
   codex_fixture
-  box_docker_exec() { :; }
+  box_docker_cli() { docker_cmd=(true); }
+  box_docker_exec() { exec {preferences_lock}>&-; }
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
   native="$codex_home/config.toml"
-  printf 'model = "account-preference"\ncustom_preference = "keep"\n' >"$native"
-  before=$(sha256sum "$native")
+  printf 'model = "account-preference"\n[projects."/workspace/🌱"]\ntrust_level = "trusted"\n' >"$native"
+  chmod 600 "$native"
+  printf 'session fixture' >"$codex_home/history.jsonl"
+  printf '{"synthetic":"auth"}' >"$codex_home/auth.json"
+  chmod 600 "$codex_home/auth.json"
+  sed -i 's/^model = .*/model = "refreshed-default"/' "$BOX_C_CONFIG"
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
-  [ "$(sha256sum "$native")" = "$before" ]
+  [[ " ${args[*]} " == *"src=$BOX_C_CONFIG,dst=/etc/codex/config.toml,readonly"* ]]
+  [ "$(box_config_get "$config" .model)" = refreshed-default ]
+  [[ "$(cat "$native")" == *'trust_level = "trusted"'* ]]
+  [[ "$(cat "$native")" != *account-preference* ]]
+  [[ "$(cat "$native.box-legacy")" == *account-preference* ]]
+  [ "$(stat -c %a "$native.box-legacy")" = 600 ]
+  [ "$(cat "$codex_home/history.jsonl")" = 'session fixture' ]
+  [ "$(cat "$codex_home/auth.json")" = '{"synthetic":"auth"}' ]
   : >"$native"
   source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
   [ ! -s "$native" ]
 }
 
 @test "installed launchers work without bundle assets or the checkout" {
+  _make_stubbin
   codex_fixture
   unset BOX_C_CONFIG BOX_C_VERSION_FILE
   mkdir -p "$TEST_TMP/installed/lib" "$TEST_TMP/installed/harnesses"
@@ -291,6 +353,7 @@ codex_fixture() {
       [[ -n "$leaf" ]] || continue
       cp "$BUNDLE_DIR/$(box_artifact_field "$id" "$artifact" source)" "$cfg/$leaf"
     done
+    _patch_launcher_path "$TEST_TMP/installed/$(box_tool_field "$id" launcher)"
     run "$TEST_TMP/installed/$(box_tool_field "$id" launcher)" --dry-run --version
     [ "$status" -eq 0 ]
     [[ "$output" == *--runtime=runsc* ]]
@@ -315,6 +378,28 @@ codex_fixture() {
   [ "$status" -ne 0 ]
 }
 
+@test "Codex validator allows changed and omitted preferences but protects policy" {
+  copy="$TEST_TMP/preferences-bundle"
+  cp -r "$BUNDLE_DIR" "$copy"
+  config="$copy/harnesses/codex/config/config.toml"
+  sed -i 's/^plan_mode_reasoning_effort = .*/plan_mode_reasoning_effort = "medium"/; s/^model = .*/model = "custom-model"/; /^personality = /d' "$config"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -eq 0 ]
+  sed -i 's/^approval_policy = .*/approval_policy = "never"/' "$config"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Unsupported Codex managed policy or seed'* ]]
+}
+
+@test "Codex validator identifies invalid preference types" {
+  copy="$TEST_TMP/preferences-bundle"
+  cp -r "$BUNDLE_DIR" "$copy"
+  sed -i 's/^plan_mode_reasoning_effort = .*/plan_mode_reasoning_effort = 42/' "$copy/harnesses/codex/config/config.toml"
+  run bash "$copy/gen-pins.sh" --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Invalid Codex preference type: plan_mode_reasoning_effort'* ]]
+}
+
 @test "Codex native probe fails closed when policy inspection is unavailable" {
   BOX_CODEX_BINARY=/bin/false run python3 "$BUNDLE_DIR/harnesses/codex/native-probe.py" --policy-json '{}'
   [ "$status" -ne 0 ]
@@ -330,6 +415,14 @@ codex_fixture() {
   tar -czf "$TEST_TMP/package.tar.gz" -C "$TEST_TMP/archive" bin
   fixture_digest=$(sha256sum "$TEST_TMP/package.tar.gz"); fixture_digest=${fixture_digest%% *}
   # Mock only transport; the real resolver must hash and inventory the bytes.
+  box_fetch_verify() {
+    # Driver-owned helper (update-pins.sh), unreachable via standalone
+    # adapter sourcing: mirror its contract (curl transport + real hash)
+    # so the companion/corruption assertions below stay meaningful.
+    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --connect-timeout 15 --max-time 600 -o "$2" -- "$1" || return 1
+    local computed; computed=$(sha256sum -- "$2"); computed=${computed%% *}
+    printf '%s' "$computed"
+  }
   assert_url_safe_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
   fetch_url() {
     jq -n --arg digest "sha256:$fixture_digest" '{tag_name:"rust-v9.9.9",prerelease:false,draft:false,assets:[

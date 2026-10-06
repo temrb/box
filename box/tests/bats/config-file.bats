@@ -81,3 +81,17 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"Unsupported configuration extension"* ]]
 }
+
+@test "TOML helpers isolate project modules and inherited Python settings" {
+  write_configs
+  mkdir -p "$TEST_TMP/imports"
+  for dir in "$TEST_PROJ" "$TEST_TMP/imports"; do
+    for module in tomllib json sitecustomize; do
+      printf 'raise RuntimeError("untrusted module executed")\n' >"$dir/$module.py"
+    done
+  done
+  cd "$TEST_PROJ"
+  export PYTHONPATH="$TEST_TMP/imports" PYTHONHOME="$TEST_TMP/missing-python-home"
+  box_config_validate "$cfg_toml"
+  [ "$(box_config_get "$cfg_toml" .approval_policy string)" = on-request ]
+}

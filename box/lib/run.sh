@@ -11,57 +11,109 @@ _BOX_RUN_LOADED=1
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
-# Resolve + validate git identity from a primary env prefix with fallback,
-# then host global git config inference.
-# Usage: box_git_identity <PRIMARY> <FALLBACK>  (e.g. box_git_identity BOX_M BOX_O)
+# Non-failing git-identity probe: same precedence as box_git_identity
+# (selected prefix, other registered prefixes, global git inference).
+# Usage: box_git_identity_probe <PRIMARY> [FALLBACK]
 # Precedence per field (independent): ${PRIMARY}_GIT_* > ${FALLBACK}_GIT_* >
-# `git config --global user.name/user.email` (that scope only; repo-local
-# identity is intentionally ignored). Explicit env always wins; invalid
-# inferred values count as missing. Prints a single NOTICE on stderr when
-# inference supplies at least one field. Sets globals: identity_name,
-# identity_email. Fails closed on missing, multi-line, or non-printable
-# values (become --env + container git config).
+# other registered git prefixes in registry order > `git config --global`
+# user.name/user.email via box_infer_git_identity (that scope only).
+# Validity per field: non-empty, single line, printable; invalid counts as
+# missing. Silent (no NOTICE); never dies. Sets globals: probe_git_name,
+# probe_git_email (valid-only, empty when missing/invalid), probe_git_missing
+# ("GIT_NAME"/"GIT_EMAIL"/"GIT_NAME and GIT_EMAIL", empty when complete),
+# probe_git_hint (every prefix pair for setup todo), probe_git_inferred
+# (which fields inference supplied, empty when none), probe_git_raw_name,
+# probe_git_raw_email (unvalidated resolution for the dying wrapper).
+# Returns 0 when complete and valid, 1 when incomplete.
 # LC_ALL decision (explicit): [[:print:]] stays locale-dependent so Unicode
 # author names keep working; determinism comes from the explicit newline,
 # carriage-return, and control-character rejection (not from forcing LC_ALL=C).
-box_git_identity() {
+box_git_identity_probe() {
   local primary=${1:-} fallback=${2:-} name_var email_var prefix id
-  local inferred_used_name=0 inferred_used_email=0 inferred_fields="" missing=""
-  [[ -n "$primary" ]] || die 'Internal error: missing git-identity prefix.'
-  identity_name=''; identity_email=''
+  probe_git_name=''; probe_git_email=''; probe_git_missing=''; probe_git_hint=''; probe_git_inferred=''
+  probe_git_raw_name=''; probe_git_raw_email=''
+  for id in $box_tool_ids; do
+    prefix=$(box_tool_field "$id" git_prefix)
+    probe_git_hint+="${probe_git_hint:+ and/or }${prefix}_GIT_NAME/${prefix}_GIT_EMAIL"
+  done
+  if [[ -z "$primary" ]]; then
+    probe_git_missing='GIT_NAME and GIT_EMAIL'
+    return 1
+  fi
   local -a prefixes=("$primary")
   if [[ -n "$fallback" ]]; then prefixes+=("$fallback"); fi
   for id in $box_tool_ids; do
     prefix=$(box_tool_field "$id" git_prefix)
     [[ "$prefix" == "$primary" || "$prefix" == "$fallback" ]] || prefixes+=("$prefix")
   done
+  local name='' email=''
   for prefix in "${prefixes[@]}"; do
     name_var="${prefix}_GIT_NAME"; email_var="${prefix}_GIT_EMAIL"
-    [[ -n "$identity_name" ]] || identity_name=${!name_var:-}
-    [[ -n "$identity_email" ]] || identity_email=${!email_var:-}
+    [[ -n "$name" ]] || name=${!name_var:-}
+    [[ -n "$email" ]] || email=${!email_var:-}
   done
-  if [[ -z "$identity_name" || -z "$identity_email" ]]; then
+  local inferred_used_name=0 inferred_used_email=0
+  if [[ -z "$name" || -z "$email" ]]; then
     box_infer_git_identity
-    if [[ -z "$identity_name" && -n "$inferred_git_name" ]]; then
-      identity_name=$inferred_git_name
+    if [[ -z "$name" && -n "$inferred_git_name" ]]; then
+      name=$inferred_git_name
       inferred_used_name=1
     fi
-    if [[ -z "$identity_email" && -n "$inferred_git_email" ]]; then
-      identity_email=$inferred_git_email
+    if [[ -z "$email" && -n "$inferred_git_email" ]]; then
+      email=$inferred_git_email
       inferred_used_email=1
     fi
     if ((inferred_used_name || inferred_used_email)); then
       if ((inferred_used_name && inferred_used_email)); then
-        inferred_fields="GIT_NAME and GIT_EMAIL"
+        probe_git_inferred="GIT_NAME and GIT_EMAIL"
       elif ((inferred_used_name)); then
-        inferred_fields="GIT_NAME"
+        probe_git_inferred="GIT_NAME"
       else
-        inferred_fields="GIT_EMAIL"
+        probe_git_inferred="GIT_EMAIL"
       fi
-      printf '%s: NOTICE: using git global identity for %s.\n' "$BOX_TOOL" "$inferred_fields" >&2
     fi
   fi
+  probe_git_raw_name=$name
+  probe_git_raw_email=$email
+  local valid_name=$name valid_email=$email
+  if [[ "$valid_name" == *$'\n'* || "$valid_name" == *$'\r'* ]]; then valid_name=''; fi
+  if [[ "$valid_email" == *$'\n'* || "$valid_email" == *$'\r'* ]]; then valid_email=''; fi
+  if [[ -n "$valid_name" ]] && ! [[ "$valid_name" =~ ^[[:print:]]+$ ]]; then valid_name=''; fi
+  if [[ -n "$valid_email" ]] && ! [[ "$valid_email" =~ ^[[:print:]]+$ ]]; then valid_email=''; fi
+  probe_git_name=$valid_name
+  probe_git_email=$valid_email
+  if [[ -z "$valid_name" ]]; then
+    probe_git_missing="GIT_NAME"
+  fi
+  if [[ -z "$valid_email" ]]; then
+    if [[ -n "$probe_git_missing" ]]; then
+      probe_git_missing+=" and GIT_EMAIL"
+    else
+      probe_git_missing="GIT_EMAIL"
+    fi
+  fi
+  if [[ -n "$probe_git_missing" ]]; then return 1; fi
+  return 0
+}
+
+# Dying wrapper over box_git_identity_probe: identical precedence, NOTICE,
+# and die messages. Sets globals: identity_name, identity_email.
+# Usage: box_git_identity <PRIMARY> [FALLBACK]  (e.g. box_git_identity BOX_M)
+box_git_identity() {
+  local primary=${1:-} fallback=${2:-}
+  [[ -n "$primary" ]] || die 'Internal error: missing git-identity prefix.'
+  if [[ -n "$fallback" ]]; then
+    box_git_identity_probe "$primary" "$fallback" || true
+  else
+    box_git_identity_probe "$primary" || true
+  fi
+  identity_name=$probe_git_raw_name
+  identity_email=$probe_git_raw_email
+  if [[ -n "$probe_git_inferred" ]]; then
+    printf '%s: NOTICE: using git global identity for %s.\n' "$BOX_TOOL" "$probe_git_inferred" >&2
+  fi
   if [[ -z "$identity_name" || -z "$identity_email" ]]; then
+    local missing=""
     if [[ -z "$identity_name" ]]; then
       missing="GIT_NAME"
     fi
@@ -72,7 +124,9 @@ box_git_identity() {
         missing="GIT_EMAIL"
       fi
     fi
-    die "Missing git identity (${missing}): export ${primary}_GIT_NAME=... ${primary}_GIT_EMAIL=... (or ${fallback}_GIT_NAME/${fallback}_GIT_EMAIL fallback), or set 'git config --global user.name' and 'git config --global user.email'."
+    local fallback_clause=""
+    if [[ -n "$fallback" ]]; then fallback_clause=" (or ${fallback}_GIT_NAME/${fallback}_GIT_EMAIL fallback)"; fi
+    die "Missing git identity (${missing}): export ${primary}_GIT_NAME=... ${primary}_GIT_EMAIL=...${fallback_clause}, or set 'git config --global user.name' and 'git config --global user.email'."
   fi
   [[ "$identity_name" != *$'\n'* && "$identity_name" != *$'\r'* ]] \
     || die "${primary}_GIT_NAME must be a single line."
@@ -83,7 +137,7 @@ box_git_identity() {
 }
 
 # Infer git identity from the host's global git config (shared by the
-# launchers via box_git_identity above and by setup.sh advice). Reads
+# launchers via box_git_identity and by setup.sh via the probe above). Reads
 # --global scope only; repo-local user.name/email is intentionally ignored.
 # Sets globals: inferred_git_name, inferred_git_email (each empty when
 # unavailable or invalid). Never fails: a missing git binary, unset keys,
@@ -137,7 +191,7 @@ box_base_args() {
     --tmpfs /var/tmp:rw,nosuid,nodev
     --tmpfs "/home/box/.cache:rw,nosuid,nodev,uid=$host_uid,gid=$host_gid,mode=700"
     --memory="$BOX_CONTAINER_MEMORY" --memory-swap="$BOX_CONTAINER_MEMORY" --cpus="$BOX_CONTAINER_CPUS" --pids-limit="$BOX_CONTAINER_PIDS"
-    --network="$network" --workdir=/workspace)
+    --network="$network" --workdir="${working_directory:-/workspace}")
 }
 
 # Forward keys into the container by NAME only (never =value, so dry-run
@@ -192,7 +246,7 @@ box_maybe_tty() {
 # Usage: box_usage_common_flags
 box_usage_common_flags() {
   cat <<'EOF'
-Run from the project root. --dry-run prints arguments without contacting Docker.
+Run from any project subdirectory. --project-root PATH selects a non-Git root. --dry-run prints arguments without contacting Docker.
 --docker-fallback explicitly chooses hardened runc; --runsc explicitly chooses
 gVisor (no probe). With neither flag, tool runs probe container DNS under
 runsc first and auto-select hardened runc only when the probe fails (NOTICE
@@ -201,4 +255,48 @@ never probe: they stay on the explicit runtime. Launcher flags (--dry-run,
 --docker-fallback, --runsc) must precede --shell; flags after --shell are
 passed to the shell and a launcher flag there is an error.
 EOF
+}
+
+# Shared launch tail: auto-runtime → args → base → mounts → signals → keys →
+# tail callback → exec. Adapters build data (a mounts array, a forward-names
+# string, run context) and pass a tail callback for entrypoint/image
+# assembly; template-method, no tool-name branches. The callback receives the
+# tool args as its own "$@" (everything after the six params is forwarded).
+# The probe runs container DNS under runsc first and auto-selects the
+# hardened-runc fallback with NOTICE plus fallback WARNING (never silent);
+# it skips under --dry-run, explicit runtime flags, and --shell runs, and
+# fails closed under *_ALLOW_FALLBACK=0. Dry-run exits inside
+# box_docker_exec (no early return here).
+# Requires prologue globals (image, tool_network, identity_*) plus adapter-set
+# launch data; lib/{tools,launcher,run,docker}.sh loaded (wrapper order).
+# Usage: box_launch_epilogue <id> <context> <marker-label> <mounts-array> <forward-names> <tail-fn> [tool args...]
+box_launch_epilogue() {
+  local id=${1:-} context=${2:-} marker=${3:-} forward_names=${5:-} tail_fn=${6:-}
+  local -n _epi_mounts=${4:-}
+  box_require_tool "$id"
+  [[ -n "$context" && -n "$marker" && -n "${4:-}" && -n "$tail_fn" ]] || die 'Internal error: missing epilogue arguments.'
+  shift 6
+  local gpfx img_var image_override
+  gpfx=$(box_tool_field "$id" git_prefix)
+  # shellcheck disable=SC2046 # word-splitting registry probe_hosts into host args is intentional.
+  box_maybe_auto_runtime "$image" "$tool_network" "${gpfx}_ALLOW_FALLBACK" "$context" $(box_tool_field "$id" probe_hosts)
+  # shellcheck disable=SC2054 # elements are space-separated; commas live inside quoted --tmpfs values.
+  args=(run --rm --init --interactive --pull=never --name "$container"
+    --label "$marker=true"
+    --label org.box.tool="$id"
+    "${runtime_args[@]}" --user "$host_uid:$host_gid")
+  box_base_args "$tool_network"
+  args+=("${_epi_mounts[@]}")
+  box_runtime_signal
+  box_maybe_tty
+  # shellcheck disable=SC2086 # word-splitting pre-split forward names is intentional.
+  box_forward_keys $forward_names
+  # shellcheck disable=SC2086 # word-splitting BOX_TERMINAL_KEYS is intentional.
+  box_forward_keys $BOX_TERMINAL_KEYS
+  box_extra_gids "${gpfx}_EXTRA_GIDS"
+  "$tail_fn" "$@"
+  image_override=0
+  img_var="${gpfx}_IMAGE"
+  [[ -n "${!img_var:-}" ]] && image_override=1
+  box_docker_exec "$id" "$tool_network" "$image_override"
 }

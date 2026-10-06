@@ -11,8 +11,10 @@ instructions; verify `docker version`, `docker info`, and `runsc --version`.
 Rootless/userns remapping and macOS hosts are not covered by this mapping design.
 Native ARM64 runtime support remains unaccepted until tested on that architecture.
 
-Host tools: Bash, coreutils, findutils, util-linux (`flock`), Git, jq, curl, and Python 3.11+ for TOML
-consumers. JSON launchers retain their existing prerequisites; they do not load
+Host tools: Bash, coreutils, findutils, util-linux (`flock`), jq, curl, and Python 3.11+ for TOML
+consumers. Git is optional but recommended (repository-root discovery, identity
+inference); without it, launch from the project root or pass `--project-root`.
+JSON launchers retain their existing prerequisites; they do not load
 Python during launch. Static verification also requires ShellCheck and Bats.
 On Debian install validation packages with the package manager; verify Python
 with `python3 -c 'import tomllib'`. The root GitHub workflow installs these tools
@@ -88,11 +90,14 @@ current three-pin file before rerunning setup. Setup rejects incompatible instal
 
 ### 9. Daily usage and persistence
 
-Run from one physical project directory, not the entire home or a parent
-containing state/config/credentials. That directory alone is `/workspace`; a
-subdirectory launch mounts only that subdirectory. External Git worktrees fail
-preflight. Symlink aliases of a project use the same physical-path hash; moves
-and UID/GID changes create new volume/home identities.
+Run from a physical project directory, not the entire home or a parent
+containing state/config/credentials. The nearest Git root (or explicit
+`--project-root`) mounts at `/workspace`; the client starts in the launch
+subdirectory. External Git worktrees fail preflight. Symlink aliases of a
+launch directory use the same physical-path hash; moves
+and UID/GID changes create new volume/home identities. Link-heavy trees
+(for example JavaScript `node_modules/.bin`) may exceed the 500-symlink
+preflight scan cap; truncation warns and continues (see architecture §7).
 
 ```bash
 box-c --dry-run
@@ -251,3 +256,46 @@ Codex project homes/volumes, template backups, and custom roots. A code-only
 uninstall retains those stores; full removal deletes their auth/preferences/
 transcripts and cannot be described as a volume-only reset. Leave source and
 repository developer configuration separate from installed/native state.
+
+## Live defaults and subdirectory launches
+
+Run from any repository subdirectory. The nearest Git root is mounted and the
+client starts in the requested subdirectory. For a non-Git tree use
+`box-m --project-root /path/to/tree` (also supported by `box-o` and `box-c`);
+the root must contain the physical launch directory. Put launcher flags before
+`--shell`. State is keyed to the workspace root: every subdirectory of one
+project shares a single volume/home. Subdirectory-keyed volumes/homes from
+earlier releases are orphaned by the rekey (same
+`<prefix>-u<uid>-g<gid>-<hash>` shape, subdirectory hash); inventory `docker
+volume ls`, validate the new root-keyed state, then remove the orphans. No
+auto-migration is performed.
+
+Edit installed defaults, or refresh them with setup after changing checkout
+templates. Every subsequent launch uses the current defaults, including existing
+projects. `BOX_M_CONFIG`, `BOX_O_CONFIG`, and `BOX_C_CONFIG` replace this layer.
+Put partial directory overrides in `.muse/settings.json`, `.codex/config.toml`,
+or native `opencode.json(c)` / `.opencode/opencode.json(c)` files. Inheritance
+begins at the mounted root; siblings do not contribute. Codex project settings
+require native trust. Muse settings saves against the read-only snapshot are
+unsupported. UI preferences do not carry forward to later launches.
+
+Legacy preference backups use `.box-legacy` and mode 600. Do not remove homes
+or volumes to refresh preferences: these also contain auth, trust and sessions.
+Dry-run reports root, container working directory, selected defaults and
+recognized directory configuration paths without mutation.
+
+Host Python helpers use isolated imports (`python3 -I`), including TOML parsing
+and Codex trust migration. Project modules and inherited Python import settings
+do not participate in these helpers.
+
+Launcher cancellation bounds Docker stop to 10 seconds plus a 2-second kill
+grace, then gives the Docker client 2 seconds before KILL and reaping. Failed
+container stops emit a warning with the container name. `box-m-login` forwards
+cancellation to its delegated launcher and waits for cleanup; a 16-second bound
+covers that launcher cleanup before forced termination.
+
+Native acceptance captures OpenCode validation into its disposable fixture.
+Checkout evidence is refreshed only through the explicit regeneration target.
+For a separate capture, `box/regen-validation.sh --output-dir DIR` writes
+`resolved-config.json` and `config-stderr.txt` there; `--check` validates without
+writing either artifact.

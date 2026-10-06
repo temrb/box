@@ -10,15 +10,15 @@
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS base
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# No defaults (fail closed like the version ARGs): setup.sh and the Makefile
-# thread --build-arg HOST_UID/HOST_GID from `id`; a bare `docker build`
+# No defaults (fail closed like the version ARGs): lib/build.sh threads
+# --build-arg HOST_UID/HOST_GID from `id`; a bare `docker build`
 # without them fails below with a clean message instead of baking 1000:1000.
 ARG HOST_UID
 ARG HOST_GID
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash build-essential ca-certificates curl fd-find findutils git grep \
-    jq libcap2-bin procps ripgrep tree unzip xz-utils \
+    jq libcap2-bin util-linux procps ripgrep tree unzip xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -59,7 +59,7 @@ ARG TARGETARCH
 # named stages without a per-stage declaration); same fail-closed rule.
 ARG HOST_UID
 ARG HOST_GID
-# No defaults: require --build-arg (setup.sh threads pins from
+# No defaults: require --build-arg (lib/build.sh threads pins from
 # version-muse.env; bare `docker build` without args fails closed instead of
 # baking a stale default).
 ARG MUSE_VERSION
@@ -126,7 +126,7 @@ ARG TARGETARCH
 # named stages without a per-stage declaration); same fail-closed rule.
 ARG HOST_UID
 ARG HOST_GID
-# No defaults: require --build-arg (setup.sh threads pins from
+# No defaults: require --build-arg (lib/build.sh threads pins from
 # version-opencode.env; bare `docker build` without args fails closed instead
 # of baking a stale default).
 ARG OPENCODE_VERSION

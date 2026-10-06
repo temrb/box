@@ -5,7 +5,9 @@ load helpers
   original=$OPENCODE_VERSION
   box_load_pins_file "$BUNDLE_DIR/harnesses/opencode/version-opencode.env" sha-pinned \
     OPENCODE_VERSION OPENCODE_SHA256_AMD64 OPENCODE_SHA256_ARM64
-  [ "$OPENCODE_VERSION" = 2.0.6 ]
+  # Format regex, never the bundle literal: bumps must never touch this file
+  # (pins.bats pattern; value-reading is proven by synthetic fixtures).
+  [[ "$OPENCODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   [[ "$OPENCODE_SHA256_AMD64" =~ ^[0-9a-f]{64}$ ]]
   [[ "$OPENCODE_SHA256_ARM64" =~ ^[0-9a-f]{64}$ ]]
   [ -z "${_BOX_PINS_LOADED_FOR:-}" ]
@@ -146,16 +148,13 @@ PY
   run box_harness_resolve
   [ "$status" -ne 0 ]
   [[ "$output" == *"no latest channel"* ]]
-  BOX_UPDATE_OPENCODE_VERSION=9.9.9
-  export BOX_UPDATE_OPENCODE_VERSION
-  unset BOX_UPDATE_OPENCODE_SHA256_AMD64 BOX_UPDATE_OPENCODE_SHA256_ARM64
-  run box_harness_resolve
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"Partial OpenCode seed"* ]]
-  unset BOX_UPDATE_OPENCODE_VERSION
+  # Partial-seed rejection lives in the driver-owned box_update_seed
+  # (update-pins.sh), which standalone adapter sourcing cannot reach; it
+  # is covered at the driver level in update.bats instead.
 }
 
 @test "opencode launcher persists config siblings in an isolated v2 volume" {
+  [[ -x /usr/bin/docker || -x /usr/local/bin/docker ]] || skip "no Docker CLI on launcher trusted PATH"
   config="$TEST_HOME/opencode.json"
   cp "$BUNDLE_DIR/harnesses/opencode/config/opencode.json" "$config"
   pins="$TEST_HOME/version.env"
