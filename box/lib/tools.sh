@@ -268,6 +268,9 @@ box_validate_registry_destinations() {
     [[ "$value" =~ ^[A-Za-z0-9_.-]+$ && "$value" != . && "$value" != .. && -z "${_seen[$f,$value]+set}" ]] || die "Invalid/duplicate $f destination: $value"
     _seen[$f,$value]=1
   done
+  value=$(box_tool_field "$id" state_prefix)
+  [[ "$value" =~ ^[a-z][a-z0-9-]*$ && -z "${_seen[state_prefix,$value]+set}" ]] || die "Invalid/duplicate state_prefix: $id"
+  _seen[state_prefix,$value]=1
   [[ "$(box_tool_field "$id" package)" == "harnesses/$id" ]] || die "Invalid package: $id"
   for f in image_prefix network dockerfile_target git_prefix config_file; do
     value=$(box_tool_field "$id" "$f")
@@ -382,6 +385,8 @@ box_validate_registry_states() {
     value=$(box_state_field "$id" "$state" runtime)
     [[ "$value" =~ ^/[A-Za-z0-9_./-]+$ && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state runtime path.'
   done
+  [[ -n "${_seen[state,$id/volume]+set}" ]] || die "Missing canonical volume: $id"
+  [[ "$(box_state_field "$id" volume kind)" == volume && "$(box_state_field "$id" volume runtime)" == /persist ]] || die "Invalid canonical volume: $id"
   while IFS= read -r file; do [[ -n "${_sources[${file#"$bundle/"}]+set}" ]] || die "Artifact lacks consumer: $file"; done < <(find "$bundle/harnesses/$id/config" "$bundle/harnesses/$id/policy" -type f 2>/dev/null)
 }
 

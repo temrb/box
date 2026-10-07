@@ -26,6 +26,8 @@ providers.env
 
 /specs/
 
+skills-lock.json
+
 # Python bytecode / caches (native-probe.py, archive.py, tests/native/*.py).
 __pycache__/
 *.py[cod]

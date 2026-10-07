@@ -72,7 +72,7 @@ Setup refreshes `~/.config/box-c/config.toml` with one `.bak`. Every launch moun
 `BOX_C_CONFIG` or that installed default read-only at `/etc/codex/config.toml`.
 Native `.codex/config.toml` discovery runs from repository root to launch directory,
 subject to native trust and project-field restrictions. Home preference overrides
-are reset under an exclusive lock held throughout the client run. The original
+are reset under an exclusive lock held only during preference/trust rewrite and released before container start. The original
 home configuration is backed up once as `config.toml.box-legacy`; native project
 trust records remain in the home config. Auth and transcripts are retained.
 Policy changes require an image rebuild. `--dry-run` creates no home/config/CLI

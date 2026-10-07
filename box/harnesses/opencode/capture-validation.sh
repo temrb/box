@@ -13,6 +13,8 @@ source "$script_dir/../../lib/preflight.sh"
 source "$script_dir/../../lib/pins.sh"
 # shellcheck source=lib/docker.sh
 source "$script_dir/../../lib/docker.sh"
+# shellcheck source=lib/test-state.sh
+source "$script_dir/../../lib/test-state.sh"
 
 bundle_dir=$(realpath "$script_dir/../..")
 shipped="$bundle_dir/harnesses/opencode/config/opencode.json"
@@ -57,8 +59,19 @@ check_field() {
 
 # `opencode debug config` needs a project CWD for the launcher preflight; use
 # a throwaway scratch project under HOME (never /tmp: /tmp/* is denylisted).
+# In test-namespace runs the scratch project lives under the disposable
+# BOX_TEST_TASK_ROOT instead, and the capture owns an independent
+# `<ns>-cap-<8hex>` sub-namespace (specs/plan.md §0 B0): the parent-NS volume
+# is never touched by the capture run.
 # Single EXIT trap declared upfront; subshell (cd) avoids pushd/popd asymmetry.
-scratch=$(mktemp -d "$HOME/.box-regen.XXXXXX") || die 'Cannot create scratch project.'
+scratch_parent=$HOME
+capture_ns=
+if box_test_in_test_mode; then
+  box_test_require_vars
+  capture_ns=$(box_test_capture_ns) || die 'Cannot derive capture sub-namespace.'
+  scratch_parent=$BOX_TEST_TASK_ROOT
+fi
+scratch=$(mktemp -d "$scratch_parent/.box-regen.XXXXXX") || die 'Cannot create scratch project.'
 cache_tmp=$scratch
 effective_err=$(mktemp "$cache_tmp/regen-validation-err.XXXXXX") || die 'Cannot create temp file.'
 redacted=$(mktemp "$cache_tmp/regen-validation-redacted.XXXXXX") || die 'Cannot create temp file.'
@@ -66,19 +79,42 @@ chmod 600 -- "$effective_err" "$redacted" || die 'Cannot secure temp files.'
 # The capture owns this unique physical project's v2 volume only.
 host_uid=$(id -u)
 host_gid=$(id -g)
-capture_hash=$(printf '%s' "$scratch" | sha256sum); capture_hash=${capture_hash:0:20}
-capture_volume="box-o-v2-u$host_uid-g$host_gid-$capture_hash"
+if [[ -n "$capture_ns" ]]; then
+  capture_volume=$(box_test_volume opencode "$capture_ns" "$host_uid" "$host_gid") || die 'Cannot derive capture volume.'
+else
+  capture_hash=$(printf '%s' "$scratch" | sha256sum); capture_hash=${capture_hash:0:20}
+  capture_volume="box-o-v2-u$host_uid-g$host_gid-$capture_hash"
+fi
 # shellcheck disable=SC2317,SC2329 # invoked by EXIT trap (SC2317 for shellcheck 0.9, SC2329 for 0.11+)
 cleanup_regen() {
-  local cid
+  local status=$? cid inventory containers cleanup_failed=0
   if [[ -d "$HOME/.config/box-o/docker-cli" ]]; then
     box_docker_cli "$HOME/.config/box-o/docker-cli"
-    while IFS= read -r cid; do
-      [[ -z "$cid" ]] || "${docker_cmd[@]}" rm -f "$cid" >/dev/null 2>&1 || true
-    done < <("${docker_cmd[@]}" ps -aq --filter "volume=$capture_volume" 2>/dev/null)
-    "${docker_cmd[@]}" volume rm "$capture_volume" >/dev/null 2>&1 || true
+    if [[ -n "$capture_ns" ]]; then
+      # Test-namespace cleanup is strictly authorized: only the capture's
+      # own sub-namespace volume may be removed, never the parent NS and
+      # never a production volume. The guard dies without touching Docker.
+      box_test_guard_cleanup "$capture_volume" opencode "$capture_ns" "$host_uid" "$host_gid" >/dev/null
+    fi
+    if containers=$("${docker_cmd[@]}" ps -aq --filter "volume=$capture_volume"); then
+      while IFS= read -r cid; do
+        if [[ -n "$cid" ]]; then
+          "${docker_cmd[@]}" rm -f "$cid" >/dev/null || cleanup_failed=1
+        fi
+      done <<<"$containers"
+    else cleanup_failed=1; fi
+    if inventory=$("${docker_cmd[@]}" volume ls -q); then
+      if [[ $'\n'"$inventory"$'\n' == *$'\n'"$capture_volume"$'\n'* ]]; then
+        "${docker_cmd[@]}" volume rm "$capture_volume" >/dev/null || cleanup_failed=1
+      fi
+    else cleanup_failed=1; fi
   fi
-  rm -rf -- "$scratch" "$effective_err" "$redacted"
+  rm -rf -- "$scratch" "$effective_err" "$redacted" || cleanup_failed=1
+  if ((cleanup_failed)); then
+    printf 'FAIL: capture cleanup failed for owned volume %s\n' "$capture_volume" >&2
+    status=1
+  fi
+  return "$status"
 }
 trap cleanup_regen EXIT
 
@@ -92,7 +128,7 @@ trap cleanup_regen EXIT
 # `-c` plus the command. `--shell -- opencode debug config` is wrong: bash
 # would treat `opencode` as a script file (exit 127); merely dropping `--`
 # does not fix it.
-if ! (cd -- "$scratch" && timeout 45 "$launcher" "$runtime_flag" --shell -c 'opencode debug config' 2>"$effective_err" \
+if ! (cd -- "$scratch" && BOX_TEST_STATE_NS="${capture_ns:-${BOX_TEST_STATE_NS:-}}" timeout 45 "$launcher" "$runtime_flag" --shell -c 'opencode debug config' 2>"$effective_err" \
     | jq -e 'walk(if type == "object" then with_entries(if (.key | ascii_downcase | test("apikey|api_key|token|secret|passwd|password|authorization|credential|private_key")) then .value = "validation-placeholder" else . end) else . end)' \
     >"$redacted"); then
   # Native diagnostics may echo user configuration. Keep raw stderr private.

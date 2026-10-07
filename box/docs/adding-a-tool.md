@@ -6,10 +6,12 @@ inputs, wrapper, generated artifacts, tests, index row, and native guide. It
 should not require rewriting shared operational guides.
 
 1. Add the ID in `lib/tools.sh` and all declared identity, pin, probe, package,
-   and fixed adapter fields. Separate package sources from installed leaf
+   and fixed adapter fields. Declare a unique volume-naming `state_prefix`
+   (distinct from the container `network`) plus every persistent/ephemeral state
+   record and exact reset consequence, including the canonical `volume` state at
+   runtime `/persist`. Separate package sources from installed leaf
    names. Declare every config artifact with format, role, lifecycle, runtime
-   path, owner, mode, and consumers, plus every persistent/ephemeral state
-   record and exact reset consequence. Override fields list environment names,
+   path, owner, mode, and consumers. Override fields list environment names,
    including aliases. Do not put executable expressions in records.
    `probe_url` is the canonical HTTPS endpoint: its host must appear in
    `probe_hosts` and in the harness `30-network` partial (muse exact URL equals
@@ -46,7 +48,11 @@ should not require rewriting shared operational guides.
    where possible. A syntax check or global config dump alone is insufficient.
 6. Extend Bats for contract negatives, nested discovery, installed operation,
    read-only dry-run, safe rejected paths, concurrent seeding, credentials,
-   updater selection/rollback, setup reruns, and state isolation. Make discovers
+   updater selection/rollback, setup reruns, and state isolation. Resolve every
+   test volume/home through `lib/test-state.sh` (`box_test_volume`,
+   `box_test_codex_home`, `box_test_guard_cleanup`); never reconstruct
+   `box-test-<ns>-` names inline and never remove a volume without the cleanup
+   guard. Make discovers
    recursive shell files, extensionless wrappers, partials, and declared config
    artifacts. Add credentials only to shared allowlist data, and forward the
    minimum native subset. Do not duplicate Make build or updater orchestration.
@@ -60,7 +66,8 @@ should not require rewriting shared operational guides.
    checks in `docs/acceptance.md`. Require native ARM64 and a real workflow run
    before claiming those gates passed.
 
-Unknown artifacts, escaping paths, duplicate destinations, and missing consumers
+Unknown artifacts, escaping paths, duplicate destinations (including duplicate
+`state_prefix`), missing canonical volumes, and missing consumers
 must fail validation. Native facts stay in package assets and guides; shared
 docs link them. A new integration is implemented only after these changes and
 accepted only when its declared runtime gates have evidence.

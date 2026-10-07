@@ -21,6 +21,12 @@ BUNDLE_DIR=$(dirname -- "$BUNDLE_DIR")
 setup() {
   BOX_TOOL=test
   export BOX_TOOL
+  # Phase-S hermeticity (specs/plan.md §0 B0): unit tests run in production
+  # mode unless the test itself opts into the disposable namespace. An
+  # ambient BOX_TEST_STATE_NS/BOX_TEST_TASK_ROOT would flip every identity
+  # derivation into test mode, so clear them here; tests that need them
+  # export their own after setup().
+  unset BOX_TEST_STATE_NS BOX_TEST_TASK_ROOT BOX_TEST_REAL_HOME
   # shellcheck source=../../lib/preflight.sh
   source "$BUNDLE_DIR/lib/preflight.sh"
   # shellcheck source=../../lib/tools.sh

@@ -31,10 +31,13 @@ and `BOX_<stem>_ALLOW_FALLBACK=0` forbids fallback. Shell runs are explicit-only
 
 `lib/tools.sh` declares harness identity, fixed adapter files, source versus
 installed pin names, artifact source/format/role/destination/lifecycle/mode/owner/
-consumers, and state scope/root/override/runtime/mode/reset consequences. Records
+consumers, state scope/root/override/runtime/mode/reset consequences, and the
+volume-naming `state_prefix` (distinct from the container `network`; OpenCode
+uses `box-o` for the network and `box-o-v2` for state). Records
 are literal data. Validation rejects escaping paths, symlinked sources, duplicate
-destinations and pin keys, orphan records, and missing build/host/validation
-consumers. Source config/policy directories are inventoried recursively.
+destinations, pin keys, and `state_prefix` values, orphan records, missing
+build/host/validation consumers, and a missing or non-`/persist` canonical
+`volume` state. Source config/policy directories are inventoried recursively.
 
 `harnesses/<id>/` owns native assets, launch behavior, upstream resolver,
 validator, optional install adapter, and native verification partials. Shared
@@ -84,9 +87,11 @@ readiness check exact normalized binary versions; labels are checked at launch.
 ### 7. Launchers and shared preflight
 
 Wrappers use privileged Bash mode and a fixed system PATH. Project identity is
-`pwd -P` hashed with SHA-256, first 20 hex characters; volume naming remains
-`<network>-u<uid>-g<gid>-<hash>`. Moves and UID/GID changes produce new identities.
-Git identity resolves each field independently: selected harness prefix, other
+`pwd -P` hashed with SHA-256, first 20 hex characters; production volume naming
+remains `<state-prefix>-u<uid>-g<gid>-<hash>` (registry `state_prefix`, not the
+container network). Moves and UID/GID changes produce new identities. Test runs
+resolve disposable `box-test-<ns>-` identities only through `lib/test-state.sh`,
+never inline. Git identity resolves each field independently: selected harness prefix, other
 registered prefixes in registry order, then global Git config. Explicit invalid
 identity fails; invalid inferred identity counts as unavailable.
 
@@ -119,7 +124,8 @@ nonrecursive private project/state binds, independent networks, and
 are declared in their launch adapters. OpenCode uses a writable persistent volume
 config parent `/persist/config/opencode` with its host config file mounted
 read-only and `XDG_CONFIG_HOME=/persist/config`. Its launcher adapter derives
-`box-o-v2-u<uid>-g<gid>-<physical-path-hash>` volume identity; legacy `box-o`
+`box-o-v2-u<uid>-g<gid>-<physical-path-hash>` volume identity from the registry
+`state_prefix`; legacy `box-o`
 volumes are left untouched. Data and state roots remain unchanged. Native v2
 credentials/sessions/saved approvals use `/persist/data/opencode/opencode/opencode.db`;
 the guarded entrypoint checks database/journal metadata and uses umask 077 in

@@ -12,6 +12,21 @@ _BOX_LAUNCHER_LOADED=1
 
 : "${BOX_TOOL:?caller must set BOX_TOOL before sourcing lib files}"
 
+# Self-dir bootstrap (same form as lib/tools.sh) so the test-state resolver
+# is always available wherever project identity is derived — including
+# inline `bash -c` unit tests that source only tools.sh + launcher.sh.
+_launcher_src=${BASH_SOURCE[0]}
+if command -v realpath >/dev/null 2>&1; then
+  _launcher_src=$(realpath -- "$_launcher_src" 2>/dev/null || printf '%s' "$_launcher_src")
+elif command -v readlink >/dev/null 2>&1; then
+  _launcher_src=$(readlink -f -- "$_launcher_src" 2>/dev/null || printf '%s' "$_launcher_src")
+fi
+_launcher_dir=$(dirname -- "$_launcher_src")
+unset _launcher_src
+# shellcheck source=lib/test-state.sh
+source "$_launcher_dir/test-state.sh"
+unset _launcher_dir
+
 # These deduplicate the argument loop, project identity, supplementary-GID
 # handling, and the dry-run/assert/exec tail. Callers must define usage()
 # before box_parse_launcher_args (it is invoked for --help/-h).
@@ -75,7 +90,7 @@ box_check_fallback() {
 # Usage: box_project_identity <tool-prefix>  (e.g. box_project_identity box-m)
 # Sets globals: project, host_uid, host_gid, project_hash, volume, container.
 box_project_identity() {
-  local prefix=${1:-} hash_full box_now
+  local prefix=${1:-} hash_full box_now test_id
   [[ -n "$prefix" ]] || die 'Internal error: missing tool prefix.'
   launch_directory=$(pwd -P) || die 'Cannot resolve launch directory.'
   # Sanitize all Git environment controls before repository discovery.
@@ -107,6 +122,18 @@ box_project_identity() {
   [[ "$hash_full" =~ ^[0-9a-f]{64}$ ]] || die 'Cannot hash project path.'
   project_hash=${hash_full:0:20}
   volume="${prefix}-u${host_uid}-g${host_gid}-${project_hash}"
+  if box_test_in_test_mode; then
+    # Phase-S disposable test namespace (specs/plan.md §0 B0): test runs
+    # resolve to `box-test-<ns>-` identities only. Partial test setup fails
+    # closed here — never fall back to production names. Production runs
+    # never set BOX_TEST_STATE_NS/BOX_TEST_TASK_ROOT. project_hash stays
+    # populated for workspace behavior, inventory, and dry-run visibility.
+    box_test_require_vars
+    box_test_state_overrides_location_check
+    test_id=$(box_test_id_for_prefix "$prefix") || die 'Cannot resolve test harness identity.'
+    box_require_tool "$test_id"
+    volume=$(box_test_volume "$test_id" "$BOX_TEST_STATE_NS" "$host_uid" "$host_gid") || die 'Cannot derive test volume.'
+  fi
   if ((${dry_run:-0})); then
     container="${prefix}-u${host_uid}-dry-run"
   else

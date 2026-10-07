@@ -30,9 +30,21 @@ set -- "${launcher_rest[@]}"
 
 box_launch_prologue muse
 
+if box_test_in_test_mode; then
+  # Phase-S test namespace: test runs use the disposable test HOME, so a
+  # production persist-dir override must never leak into test runs.
+  [[ -z "${BOX_M_PERSIST_DIR:-}" ]] || die 'BOX_M_PERSIST_DIR must be unset in test-namespace runs.'
+fi
+
 # Global auth and trust persist; preferences use a private launch snapshot.
 muse_persist_raw=${BOX_M_PERSIST_DIR:-$HOME/.config/$(box_tool_field muse config_dir)/muse-config}
 muse_persist_dir=$(box_plan_directory "$muse_persist_raw")
+if box_test_in_test_mode; then
+  # The derived global home must also live under the disposable task root
+  # and off production roots; otherwise a misconfigured HOME would silently
+  # select production state. Fails closed without Docker/lock/auth contact.
+  box_test_guard_bind_root "$muse_persist_dir"
+fi
 box_plan_docker_cli "$HOME/.config/$(box_tool_field muse config_dir)/docker-cli" >/dev/null
 # Auth/health checks run on live runs only: --dry-run never checks auth.
 if (( ! dry_run )); then box_assert_native_cache "$muse_persist_dir/auth.json"; fi

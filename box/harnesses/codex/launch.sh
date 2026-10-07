@@ -19,8 +19,23 @@ box_launch_prologue codex
 if [[ -n "${BOX_C_STATE_ROOT:-}" && -n "${BOX_C_STATE_DIR:-}" && "$BOX_C_STATE_ROOT" != "$BOX_C_STATE_DIR" ]]; then
   die 'BOX_C_STATE_ROOT and legacy BOX_C_STATE_DIR must agree when both are set.'
 fi
-state_root=$(box_plan_directory "${BOX_C_STATE_ROOT:-${BOX_C_STATE_DIR:-$HOME/$(box_state_field codex home root)}}")
-codex_home=$(box_plan_directory "$state_root/$project_hash/codex-home")
+if box_test_in_test_mode; then
+  # Phase-S test namespace (specs/plan.md §0 B0): the home is exactly
+  # <task-root>/<ns>/codex-home. BOX_C_STATE_ROOT is the test selector and
+  # must point at <task-root>/<ns>; production roots can never match because
+  # the task root is disposable and the guards reject production equality.
+  [[ -n "${BOX_C_STATE_ROOT:-}" ]] || die 'Test Codex runs require BOX_C_STATE_ROOT=<task-root>/<ns>.'
+  state_root=$(box_plan_directory "$BOX_C_STATE_ROOT")
+  box_test_guard_bind_root "$state_root"
+  codex_home=$(box_plan_directory "$state_root/codex-home")
+  box_test_guard_bind_root "$codex_home"
+  box_test_codex_home >/dev/null
+  expected_home=$(realpath -m -s -- "$(box_test_codex_home)") || die 'Cannot resolve expected test Codex home.'
+  [[ "$codex_home" == "$expected_home" ]] || die 'Test Codex home must be <task-root>/<ns>/codex-home.'
+else
+  state_root=$(box_plan_directory "${BOX_C_STATE_ROOT:-${BOX_C_STATE_DIR:-$HOME/$(box_state_field codex home root)}}")
+  codex_home=$(box_plan_directory "$state_root/$project_hash/codex-home")
+fi
 if [[ -d "$codex_home" ]]; then box_assert_owner_mode "$codex_home" 'Codex home' dir700; fi
 box_plan_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli" >/dev/null
 # Auth/health checks run on live runs only: --dry-run never checks auth.
