@@ -20,8 +20,7 @@ providers.env
 *.swo
 
 # Local test scratch (bats HOME override used by validation runs).
-.bats-scratch/
-.bats-home/
+.bats*
 
 /.agents/
 
