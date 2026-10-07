@@ -14,6 +14,8 @@ source "$bundle_dir/lib/pins.sh"
 source "$bundle_dir/lib/build.sh"
 # shellcheck source=lib/docker.sh
 source "$bundle_dir/lib/docker.sh"
+# shellcheck source=lib/test-state.sh
+source "$bundle_dir/lib/test-state.sh"
 selected_ids=$box_tool_ids
 focused=0
 if (($#)); then
@@ -37,19 +39,50 @@ host_uid=$(id -u); host_gid=$(id -g)
 task_root=$(mktemp -d "$HOME/.box-native.XXXXXX")
 test_home="$task_root/home"
 mkdir -m 700 "$test_home"
+# Phase-S disposable test namespace (specs/plan.md §0 B0): every launcher
+# invocation below resolves to `box-test-<ns>-` identities only, so native
+# tests can never mount, inspect, or remove production global volumes/homes.
+# BOX_TEST_REAL_HOME pins production-default comparison before HOME is
+# overridden per-command; BOX_C_STATE_ROOT selects the test Codex root
+# (<task-root>/<ns>, so the home is exactly <task-root>/<ns>/codex-home).
+export BOX_TEST_REAL_HOME="$HOME"
+export BOX_TEST_TASK_ROOT="$task_root"
+BOX_TEST_STATE_NS=$(box_test_new_ns)
+export BOX_TEST_STATE_NS
+export BOX_C_STATE_ROOT="$task_root/$BOX_TEST_STATE_NS"
+# Namespaces owned by this run (main + per-project + legacy orphan fixture).
 volumes=()
+# Resolver coordinates per test volume: volume -> "harness-id namespace".
+declare -A volume_spec=()
+# Expected legacy v1 orphan fixtures: disposable-hash names, never global
+# names. Tracked exactly; removal requires exact-match (see below).
+declare -A legacy_expected=()
 # Fixture removal must succeed; absence is allowed for tools never launched.
+# Cleanup is strictly authorized: test volumes must pass the namespace guard
+# (dies without touching Docker otherwise); legacy orphan fixtures must
+# exactly match the recorded expectation. Owned-cleanup failure is fatal.
 remove_fixture_volumes() {
-  local volume cid inventory
+  local volume cid inventory containers
   local -A seen=()
   inventory=$("${docker_cmd[@]}" volume ls -q) || return 1
   for volume in "${volumes[@]}"; do
     [[ -z "${seen[$volume]:-}" ]] || continue
     seen[$volume]=1
+    if [[ "$volume" == box-test-* ]]; then
+      [[ -n "${volume_spec[$volume]:-}" ]] || { printf 'FAIL: untracked test volume: %s\n' "$volume" >&2; return 1; }
+      # shellcheck disable=SC2086 # tracked "id ns" coordinates intentionally split
+      box_test_guard_cleanup "$volume" ${volume_spec[$volume]} "$host_uid" "$host_gid" >/dev/null || return 1
+    elif [[ -n "${legacy_expected[$volume]:-}" && "$volume" == "${legacy_expected[$volume]}" ]]; then
+      : # exact-match grandfathered orphan fixture (disposable hash, never global)
+    else
+      printf 'FAIL: refusing cleanup of unauthorized volume: %s\n' "$volume" >&2
+      return 1
+    fi
     [[ $'\n'"$inventory"$'\n' == *$'\n'"$volume"$'\n'* ]] || continue
+    containers=$("${docker_cmd[@]}" ps -aq --filter "volume=$volume") || return 1
     while IFS= read -r cid; do
       [[ -z "$cid" ]] || "${docker_cmd[@]}" rm -f "$cid" >/dev/null || return 1
-    done < <("${docker_cmd[@]}" ps -aq --filter "volume=$volume")
+    done <<<"$containers"
     "${docker_cmd[@]}" volume rm "$volume" >/dev/null || return 1
   done
 }
@@ -78,16 +111,17 @@ git -C "$project" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
   -c user.name='Acceptance Fixture' -c user.email=fixture@example.invalid \
   commit -qm 'Disposable fixture'
 hash=$(printf '%s' "$project" | sha256sum); hash=${hash:0:20}
+# Expected volumes resolve through the single test resolver (never inline).
 for id in $box_tool_ids; do
-  prefix=$(box_tool_field "$id" network)
-  [[ "$id" != opencode ]] || prefix=box-o-v2
-  volumes+=("$prefix-u$host_uid-g$host_gid-$hash")
+  vol=$(box_test_volume "$id" "$BOX_TEST_STATE_NS" "$host_uid" "$host_gid")
+  volumes+=("$vol")
+  volume_spec[$vol]="$id $BOX_TEST_STATE_NS"
 done
 cd "$project"
 unmet=0
 # Production launcher checks, separate from account-dependent generated readiness.
 check_opencode() {
-  local flag=$1 iteration second second_hash legacy
+  local flag=$1 iteration second second_ns legacy second_volume
   for iteration in first restart; do
     env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
       -c 'python3 - "$1"' _ "$iteration" <"$bundle_dir/tests/native/opencode-state.py" || return 1
@@ -104,6 +138,7 @@ check_opencode() {
   env HOME="$test_home" bash "$bundle_dir/harnesses/opencode/capture-validation.sh" --check "$flag" || return 1
   legacy="box-o-u$host_uid-g$host_gid-$hash"
   volumes+=("$legacy")
+  legacy_expected[$legacy]=$legacy
   # Seed only a disposable legacy fixture; the launcher must leave it untouched.
   "${docker_cmd[@]}" volume create "$legacy" >/dev/null || return 1
   # shellcheck disable=SC2046 # ordered registry keys intentionally split
@@ -133,14 +168,20 @@ check_opencode() {
   [[ "$before" == "$after" ]] || return 1
   [[ -z "$(find "$second" -mindepth 1 -print -quit)" ]] || return 1
   printf 'PASS: opencode/%s dry-run creates no project files or volumes\n' "$flag"
-  second_hash=$(printf '%s' "$second" | sha256sum); second_hash=${second_hash:0:20}
-  volumes+=("box-o-v2-u$host_uid-g$host_gid-$second_hash")
+  # Phase-S isolation: the second disposable project owns its own namespace,
+  # so per-project isolation assertions keep passing. (Phases 5/7 collapse
+  # multi-project flows onto the shared run namespace with sharing
+  # expectations.)
+  second_ns=$(box_test_new_ns)
+  second_volume=$(box_test_volume opencode "$second_ns" "$host_uid" "$host_gid")
+  volumes+=("$second_volume")
+  volume_spec[$second_volume]="opencode $second_ns"
   (
     cd "$second"
-    env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
+    BOX_TEST_STATE_NS="$second_ns" env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
       -c 'test ! -e /persist/config/opencode/cli.json && test ! -e /persist/state/opencode/box-persistence-marker' || return 1
     touch .box-native-disposable
-    env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
+    BOX_TEST_STATE_NS="$second_ns" env HOME="$test_home" "$test_home/.local/bin/box-o" "$flag" --shell \
       -c 'python3 - saved-isolation' <"$bundle_dir/harnesses/opencode/native-probe.py" || return 1
   ) || return 1
   printf 'PASS: opencode/%s preferences reset while state and approvals persist and isolate physical projects\n' "$flag"
@@ -177,7 +218,6 @@ if ((focused)); then
   printf 'UNMET: real provider login/model/resume, native ARM64, actual GitHub workflow run (separate gates)\n'
   exit 0
 fi
-declare -A seen=()
 for runtime in runsc runc; do
   runtime_flag=--runsc
   [[ "$runtime" != runc ]] || runtime_flag=--docker-fallback
@@ -220,11 +260,15 @@ for runtime in runsc runc; do
     printf 'PASS: opencode/%s native permission and state checks\n' "$runtime"
   else unmet=1; fi
   rm -f -- "$project/opencode.json"
-  for volume in "${volumes[@]}"; do
-    [[ -z "${seen[$volume]:-}" ]] || continue
-    seen[$volume]=1
-    [[ "$volume" != box-o-v2-* && "$volume" != box-o-u* ]] || "${docker_cmd[@]}" volume rm "$volume" >/dev/null 2>&1 || true
-  done
+  # Separate runtime fixtures prevent saved approvals contaminating the
+  # matrix: drop exactly this run's opencode test volume (guarded; the
+  # legacy orphan fixture stays until final cleanup). Owned-cleanup
+  # failure is fatal: a silent leftover would contaminate the next runtime.
+  opencode_test_volume=$(box_test_volume opencode "$BOX_TEST_STATE_NS" "$host_uid" "$host_gid")
+  box_test_guard_cleanup "$opencode_test_volume" opencode "$BOX_TEST_STATE_NS" "$host_uid" "$host_gid" >/dev/null
+  if "${docker_cmd[@]}" volume inspect "$opencode_test_volume" >/dev/null 2>&1; then
+    "${docker_cmd[@]}" volume rm "$opencode_test_volume" >/dev/null || die 'Cannot drop runtime opencode test volume.'
+  fi
 done
 # Two-project Codex host-home and volume persistence without auth/transcripts.
 for iteration in first second; do
@@ -241,15 +285,22 @@ done
 second_project="$task_root/second-project"
 mkdir -m 700 "$second_project"
 cd "$second_project"
-second_hash=$(printf '%s' "$second_project" | sha256sum); second_hash=${second_hash:0:20}
-volumes+=("box-c-u$host_uid-g$host_gid-$second_hash")
+# Phase-S isolation: the second disposable project owns its own namespace
+# (plus its own test Codex root), so the two-project isolation assertions
+# keep passing. (Phases 5/7 collapse this onto the shared run namespace
+# with sharing expectations.)
+second_ns=$(box_test_new_ns)
+second_volume=$(box_test_volume codex "$second_ns" "$host_uid" "$host_gid")
+volumes+=("$second_volume")
+volume_spec[$second_volume]="codex $second_ns"
 # shellcheck disable=SC2016 # literal script runs inside the container
-env HOME="$test_home" "$test_home/.local/bin/box-c" --runsc --shell -c '
+BOX_TEST_STATE_NS="$second_ns" BOX_C_STATE_ROOT="$task_root/$second_ns" \
+  env HOME="$test_home" "$test_home/.local/bin/box-c" --runsc --shell -c '
   test ! -e "$CODEX_HOME/box-persistence-marker"
   test ! -e /persist/state/codex/box-persistence-marker'
 printf 'PASS: Codex both stores persist on restart and isolate two physical projects (unauthenticated)\n'
 # Exercise setup reruns against controlled fixture state, never real auth.
-first_home="$test_home/.config/box-c/projects/$hash/codex-home"
+first_home="$task_root/$BOX_TEST_STATE_NS/codex-home"
 printf 'model = "fixture-preference"\n' >"$first_home/config.toml"
 printf '{"fixture":true}\n' >"$first_home/auth.json"
 chmod 600 "$first_home/auth.json"

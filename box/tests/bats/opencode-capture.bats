@@ -56,3 +56,78 @@ STUB
   [ -s "$TEST_TMP/evidence/config-stderr.txt" ]
   [ "$before" = "$(sha256sum "$copy/harnesses/opencode/validation/"*)" ]
 }
+
+@test "capture derives an isolated sub-namespace through the real resolver" {
+  prepare_capture
+  # Recording stub launcher: proves the real script propagates a
+  # `<ns>-cap-<8hex>` sub-namespace (not the parent, not production).
+  cat >"$HOME/.local/bin/box-o" <<'STUB'
+#!/bin/bash
+printf '%s\n' "${BOX_TEST_STATE_NS:-<unset>}" >>"$HOME/seen-ns.log"
+printf '%s\n' "${BOX_TEST_TASK_ROOT:-<unset>}" >>"$HOME/seen-root.log"
+cat "$HOME/debug.json"
+STUB
+  chmod +x "$HOME/.local/bin/box-o"
+  # Task root lives under the real-home project parent (never /tmp: /tmp/*
+  # is denylisted for real launcher projects, same as native task roots
+  # under $HOME/.box-native.XXXXXX).
+  taskroot="$PROJ_ROOT/taskroot"
+  mkdir -p "$taskroot"
+  export BOX_TEST_TASK_ROOT="$taskroot" BOX_TEST_STATE_NS=t-abcdef123456
+  rm -f "$HOME/seen-ns.log" "$HOME/seen-root.log"
+  run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
+  [ "$status" -eq 0 ]
+  seen_ns=$(cat "$HOME/seen-ns.log")
+  [[ "$seen_ns" =~ ^t-abcdef123456-cap-[0-9a-f]{8}$ ]]
+  [ "$(cat "$HOME/seen-root.log")" = "$taskroot" ]
+  # The parent-NS volume is untouched: only the capture sub-namespace ran.
+  [[ "$seen_ns" != t-abcdef123456 ]]
+  unset BOX_TEST_TASK_ROOT BOX_TEST_STATE_NS
+}
+
+@test "capture fails closed on a malformed test namespace" {
+  prepare_capture
+  taskroot="$PROJ_ROOT/taskroot"
+  mkdir -p "$taskroot"
+  export BOX_TEST_TASK_ROOT="$taskroot" BOX_TEST_STATE_NS='../evil'
+  run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
+  [ "$status" -ne 0 ]
+  unset BOX_TEST_TASK_ROOT BOX_TEST_STATE_NS
+}
+
+@test "capture fails when owned volume cleanup fails" {
+  prepare_capture
+  mkdir -p "$TEST_TMP/bin" "$HOME/.config/box-o/docker-cli"
+  chmod 700 "$HOME/.config/box-o/docker-cli"
+  printf '{}\n' >"$HOME/.config/box-o/docker-cli/config.json"
+  chmod 600 "$HOME/.config/box-o/docker-cli/config.json"
+  cat >"$TEST_TMP/bin/docker" <<'STUB'
+#!/bin/bash
+shift 4
+case "$1 $2" in
+  'ps -aq') exit 0 ;;
+  'volume ls') cat "$HOME/capture-volume" ;;
+  'volume rm') exit 23 ;;
+  *) exit 99 ;;
+esac
+STUB
+  chmod +x "$TEST_TMP/bin/docker"
+  cat >"$HOME/.local/bin/box-o" <<'STUB'
+#!/bin/bash
+BOX_TOOL=test
+source "$CAPTURE_BUNDLE/lib/test-state.sh"
+box_test_volume opencode "$BOX_TEST_STATE_NS" "$(id -u)" "$(id -g)" >"$HOME/capture-volume"
+cat "$HOME/debug.json"
+STUB
+  chmod +x "$HOME/.local/bin/box-o"
+  # Replace only Docker transport in the disposable bundle; exercise the
+  # real capture trap and namespace authorization against a failing daemon.
+  cat >>"$copy/lib/docker.sh" <<'STUB'
+box_docker_cli() { docker_cmd=("$CAPTURE_DOCKER" --config ignored --host ignored); }
+STUB
+  export CAPTURE_BUNDLE="$copy" CAPTURE_DOCKER="$TEST_TMP/bin/docker"
+  export BOX_TEST_TASK_ROOT="$PROJ_ROOT" BOX_TEST_STATE_NS=t-abcdef123456
+  run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'capture cleanup failed'* ]] || { printf '%s\n' "$output"; return 1; }
+}

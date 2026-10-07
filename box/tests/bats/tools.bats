@@ -122,3 +122,23 @@ load helpers
     done
   done
 }
+
+@test "registry rejects invalid empty and duplicate state prefixes" {
+  for prefix in '../invalid' '' 'box-m'; do
+    run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_TOOL_REGISTRY[codex,state_prefix]=$2; box_validate_registry "$1"' _ "$BUNDLE_DIR" "$prefix"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'state_prefix'* ]]
+  done
+}
+
+@test "registry requires the canonical persist volume even with no orphan records" {
+  run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_TOOL_REGISTRY[muse,states]="home"; for field in $box_state_fields; do unset "_BOX_STATES[muse,volume,$field]"; done; box_validate_registry "$1"' _ "$BUNDLE_DIR"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Missing canonical volume'* ]]
+}
+
+@test "registry rejects a canonical volume at a different runtime path" {
+  run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_STATES[codex,volume,runtime]=/other; box_validate_registry "$1"' _ "$BUNDLE_DIR"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Invalid canonical volume'* ]]
+}

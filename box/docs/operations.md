@@ -209,8 +209,9 @@ Current results and unmet gates live in [acceptance](acceptance.md).
 
 First list exact targets and dependent containers. Stop/remove only confirmed
 containers using those stores before deletion. Never glob-delete another
-project's volumes or custom roots. From the project, derive its volume/home
-identity without accessing secrets:
+project's volumes or custom roots. From the project, derive its production
+volume/home identity without accessing secrets (test runs use disposable
+`box-test-<ns>-` identities via `lib/test-state.sh`, never this formula):
 
 ```bash
 BOX_TOOL=inventory bash -c '
@@ -218,8 +219,7 @@ BOX_TOOL=inventory bash -c '
   project=$(pwd -P)
   hash=$(printf "%s" "$project" | sha256sum); hash=${hash:0:20}
   for id in $box_tool_ids; do
-    prefix=$(box_tool_field "$id" network)
-    [[ "$id" != opencode ]] || prefix=box-o-v2
+    prefix=$(box_tool_field "$id" state_prefix)
     printf "%s volume: %s-u%s-g%s-%s\n" "$id" "$prefix" "$(id -u)" "$(id -g)" "$hash"
   done
   printf "Codex home: %s/%s/codex-home\n" "${BOX_C_STATE_ROOT:-${BOX_C_STATE_DIR:-$HOME/.config/box-c/projects}}" "$hash"
@@ -266,7 +266,7 @@ the root must contain the physical launch directory. Put launcher flags before
 `--shell`. State is keyed to the workspace root: every subdirectory of one
 project shares a single volume/home. Subdirectory-keyed volumes/homes from
 earlier releases are orphaned by the rekey (same
-`<prefix>-u<uid>-g<gid>-<hash>` shape, subdirectory hash); inventory `docker
+`<state-prefix>-u<uid>-g<gid>-<hash>` shape, subdirectory hash); inventory `docker
 volume ls`, validate the new root-keyed state, then remove the orphans. No
 auto-migration is performed.
 
