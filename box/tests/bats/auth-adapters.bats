@@ -449,3 +449,27 @@ assert a.cmd_verify_envelope(argparse.Namespace(envelope=str(p))) == 0
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "opencode refuses credential and selection triggers before source mutation" {
+  for table in credential account_state; do
+    db="$TEST_TMP/trigger-$table.db"
+    _make_opencode_database "$db"
+    python3 -I - "$db" "$table" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as con:
+    con.execute('CREATE TABLE unrelated (marker TEXT)')
+    con.execute("INSERT INTO unrelated VALUES ('preserve')")
+    if sys.argv[2] == 'account_state':
+        con.execute('CREATE TABLE account (id TEXT, email TEXT, url TEXT, access_token TEXT, refresh_token TEXT, token_expiry INTEGER, time_created INTEGER, time_updated INTEGER)')
+        con.execute('CREATE TABLE account_state (id INTEGER, active_account_id TEXT, active_org_id TEXT)')
+    con.execute('CREATE TRIGGER hostile AFTER DELETE ON ' + sys.argv[2] + ' BEGIN DELETE FROM unrelated; END')
+PY
+    before=$(sha256sum "$db")
+    run python3 -I "$BUNDLE_DIR/harnesses/opencode/auth-state.py" scrub --db "$db"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'unsupported auth/selection trigger'* ]]
+    [ "$(sha256sum "$db")" = "$before" ]
+    [ ! -e "$db-wal" ]
+    [ ! -e "$db-shm" ]
+  done
+}

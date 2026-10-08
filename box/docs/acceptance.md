@@ -1,13 +1,25 @@
 # Architecture audit acceptance
 
-## Current continuation: baseline, hosted Docker and ext4 (2026-10-08)
+## Current continuation: ordered leases and qualification (2026-10-08)
+
+The [latest progress record](../../specs/implementation-progress.md) records
+renewed exact-source hosted qualification, an ordered host lock-set API,
+lease-aware schema-2 authority, bounded OpenCode trigger refusal and a
+Make-driven pinned disposable native storage gate. All three amd64 synthetic
+native fixtures pass; ARM64 fixture execution is pending. Neither synthetic
+fixtures nor running CI close native/account/power-loss or production cutover
+gates. The current schema-1/contract-3 launchers still mount canonical state.
+
+## Earlier baseline, hosted Docker and ext4 observations (2026-10-08)
 
 Q01's source-baseline/qualification-harness criteria are complete. The
 [progress record](../../specs/implementation-progress.md) contains exact
 snapshots, source comparisons, artifact digests and measured outcomes.
 The other 33 broad tasks remain open; production is schema 1 / contract 3
-and still exposes canonical state. The additive host-only store has 14
-synthetic authority regressions and is not activated.
+and still exposes canonical state. The additive host-only store has 15
+synthetic authority regressions and is not activated. Its ordered host lease
+protocol has seven subprocess tests and remains separate from production
+contract-3 orchestration.
 
 **CI/S/U:** Both static runs for snapshots `0c678872…` and `146bbca6…`
 passed. Local static verification after the MCP/privacy/registration changes

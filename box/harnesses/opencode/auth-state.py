@@ -23,6 +23,7 @@ import sqlite3
 import stat
 import sys
 import tempfile
+import time
 
 ADAPTER_SCHEMA = 1
 ENVELOPE_SCHEMA = 1
@@ -48,6 +49,15 @@ ACCOUNT_SELECTION_COLUMNS = ["id", "active_account_id", "active_org_id"]
 
 def _connect(db_path):
     con = sqlite3.connect(db_path, timeout=10, isolation_level=None)
+    con.enable_load_extension(False)
+    con.execute("PRAGMA trusted_schema=OFF;")
+    # Native databases are untrusted data. Bound each helper connection's
+    # parser/VM work; a timeout refuses rather than implying empty auth.
+    con.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 1024 * 1024)
+    con.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
+    con.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
+    deadline = time.monotonic() + 10
+    con.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
     con.execute("PRAGMA journal_mode=WAL;")
     con.execute("PRAGMA busy_timeout=10000;")
     con.execute("PRAGMA foreign_keys=ON;")
@@ -122,6 +132,15 @@ def cmd_validate(args):
         return 1
     try:
         tables = _tables(con)
+        # No auth/selection trigger contract has been qualified. Refuse such
+        # triggers before opening the source for mutation, including triggers
+        # reached by account_state foreign-key updates. Unknown trigger code
+        # must never delete or rewrite unrelated mixed-database records.
+        managed = {"credential", "account", "control_account", "account_state"}
+        if any(row[0] in managed for row in con.execute(
+                "SELECT tbl_name FROM sqlite_master WHERE type='trigger'")):
+            print("unsupported auth/selection trigger", file=sys.stderr)
+            return 1
         # New auth-bearing stores cannot silently escape the projection.
         token_columns = {"access_token", "refresh_token", "id_token", "api_key",
                          "client_secret", "password", "secret"}

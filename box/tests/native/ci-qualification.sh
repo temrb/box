@@ -92,6 +92,7 @@ printf 'Disposable qualification coordinates: %s\n' "$task_root"
 run_gate static make -C "$bundle_dir" verify-static || true
 run_gate pins make -C "$bundle_dir" pins || true
 run_gate generated make -C "$bundle_dir" verify-generated || true
+run_gate native-storage make -C "$bundle_dir" verify-native-auth-disposable || true
 # Installation populates only the disposable HOME. Build is via Make only.
 if run_gate install bash -p "$bundle_dir/setup.sh" --skip-build; then
   if run_gate build make -C "$bundle_dir" build; then

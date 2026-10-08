@@ -113,6 +113,7 @@ help:
 	@echo '  verify-static  syntax + configs + generated + pins + shellcheck + bats (fast-first)'
 	@echo '  verify-native-opencode  production OpenCode runsc/runc policy and state checks'
 	@echo '  verify-native-auth-host  pinned synthetic native auth storage (explicit binaries/archive; no Docker/account)'
+	@echo '  verify-native-auth-disposable  fetch pinned artifacts and test synthetic stores (explicit private scratch parent)'
 	@echo '  verify-native  disposable runsc/runc native evidence; fails on unmet account/policy gates'
 	@echo '  verify-config  validate JSON/TOML configuration documents'
 	@echo '  verify-shell   bash -n over shell sources and verification partials'
@@ -260,6 +261,11 @@ verify-native-auth-host:
 	python3 -I "$(BUNDLE_DIR)/tests/native/muse-auth-fixture.py" --binary "$${MUSE_BINARY}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
 	python3 -I "$(BUNDLE_DIR)/tests/native/opencode-auth-fixture.py" --binary "$${OPENCODE_BINARY}" --archive "$${OPENCODE_ARCHIVE}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
 	python3 -I "$(BUNDLE_DIR)/tests/native/codex-auth-fixture.py" --binary "$${CODEX_BINARY}" --archive "$${CODEX_ARCHIVE}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
+
+.PHONY: verify-native-auth-disposable
+verify-native-auth-disposable:
+	@test -n "$${BOX_TEST_PROJECT_ROOT}" || { echo 'Set BOX_TEST_PROJECT_ROOT to an existing private disposable scratch parent.' >&2; exit 2; }
+	python3 -I "$(BUNDLE_DIR)/tests/native/disposable-storage.py" --scratch-root "$${BOX_TEST_PROJECT_ROOT}"
 
 .PHONY: verify-native-opencode
 verify-native-opencode:

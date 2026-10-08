@@ -24,16 +24,17 @@ def main():
     parser.add_argument("--archive", required=True)
     parser.add_argument("--scratch-root", required=True)
     args = parser.parse_args()
-    if platform.machine() != "x86_64":
-        raise SystemExit("BLOCKED: OpenCode host fixture currently qualifies amd64 artifacts only")
+    arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine())
+    if arch is None:
+        raise SystemExit("BLOCKED: unsupported OpenCode native fixture architecture")
     bundle = Path(__file__).resolve().parents[2]
     binary, archive = Path(args.binary).resolve(strict=True), Path(args.archive).resolve(strict=True)
-    pin = subprocess.run(["bash", "-p", "-c", 'source "$1/lib/pins.sh"; box_print_pin "$1" OPENCODE_SHA256_AMD64',
-                          "fixture", str(bundle)], env={"PATH": "/usr/bin:/bin", "BOX_TOOL": "fixture"},
+    pin = subprocess.run(["bash", "-p", "-c", 'source "$1/lib/pins.sh"; box_print_pin "$1" "$2"',
+                          "fixture", str(bundle), "OPENCODE_SHA256_" + arch.upper()], env={"PATH": "/usr/bin:/bin", "BOX_TOOL": "fixture"},
                          check=True, capture_output=True, text=True).stdout
     if hashlib.sha256(archive.read_bytes()).hexdigest() != pin:
-        raise ValueError("OpenCode archive does not match the pinned amd64 artifact")
-    subprocess.run(["python3", "-I", str(bundle / "harnesses/opencode/archive.py"), str(archive), "amd64"], check=True)
+        raise ValueError("OpenCode archive does not match the pinned architecture artifact")
+    subprocess.run(["python3", "-I", str(bundle / "harnesses/opencode/archive.py"), str(archive), arch], check=True)
     with tarfile.open(archive) as stream:
         artifact = stream.extractfile("opencode")
         if artifact is None or hashlib.sha256(artifact.read()).digest() != hashlib.sha256(binary.read_bytes()).digest():
@@ -68,7 +69,7 @@ def main():
         data = root / "data/opencode"
         data.mkdir(parents=True, mode=0o700, exist_ok=True)
         assert run([str(binary), "--version"]).stdout.strip() == "opencode v2.0.6"
-        print("N: OpenCode archive SHA256=" + pin + "; native version=opencode v2.0.6")
+        print("N: OpenCode archive SHA256=" + pin + "; arch=" + arch + "; native version=opencode v2.0.6")
         run([str(binary), "auth", "list", "--standalone"])
         db = data / "opencode.db"
         assert db.stat().st_mode & 0o777 == 0o600
@@ -168,6 +169,14 @@ def main():
         op("export", "--out", envelope)
         assert json.loads(envelope.read_text())["payload"]["accounts"][0]["refresh_token"] == "synthetic-rotated"
         before = envelope.read_bytes()
+        with sqlite3.connect(db) as con:
+            con.execute('CREATE TRIGGER box_hostile_auth AFTER DELETE ON credential BEGIN DELETE FROM box_non_auth_marker; END')
+        source_before = db.read_bytes()
+        assert op("scrub", success=False).returncode != 0
+        assert db.read_bytes() == source_before and envelope.read_bytes() == before
+        with sqlite3.connect(db) as con:
+            assert con.execute('SELECT value FROM box_non_auth_marker').fetchone()[0] == "preserve"
+            con.execute('DROP TRIGGER box_hostile_auth')
         with sqlite3.connect(db) as con:
             con.execute('ALTER TABLE account ADD COLUMN unknown_token TEXT')
         source_before = db.read_bytes()

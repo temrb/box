@@ -1,5 +1,68 @@
 # Implementation progress — 2026-10-08
 
+## Ordered leases and renewed qualification — 2026-10-08
+
+Preserved local HEAD/index and every prior tracked/untracked change. Start
+status: `/tmp/box-start-status-20261008.txt`; baseline:
+`/tmp/box-start-baseline-20261008.json`, manifest
+`39b3e3018970c167116fdc1ceee0f5524c1df35ffbb0ad23222a31106c1274ff`.
+A strict idle recheck matched. The current local host still has no Engine,
+Docker/runsc binaries, sudo or effective capabilities; hosted VMs are usable.
+
+Draft PR #3 had advanced to `cf638f30a14a451c379c434c15438129b146d9e6`.
+Published the later preserved fixture/generator/network changes as
+`c5f2bf55525503341033c99688dd385f009d5434` through Git objects without
+changing the local branch/index. A separate fetched checkout's source inventory
+compares equal using `specs/compare-baselines.py --publication`.
+Its qualification run is `37811762905`; running jobs are not acceptance.
+
+The preceding registration run `37805630389` actually passed runsc registration,
+Make builds, live Docker and bounded ext4 exhaustion on both architectures,
+but native acceptance failed. Its logs show runsc DNS failures, unresolved
+containment header tokens and a lifecycle driver that stopped at its first
+case failure. The later source resolves containment through the generator,
+continues per-case failures without leaking commands/output, isolates ambient
+account/backend selectors and records neutral exact-ID DNS/TLS observations.
+The latest driver adds bounded phase and refusal categories for investigation.
+
+**U:** Added `box/lib/host-locks.py` with installation/lifecycle/auth/native
+ordering, registry-ordered lifecycle resources, sorted identity locks, bounded
+complete acquisition, stable hashed resource coordinates and close-on-exec
+leases. Seven real subprocess/synthetic tests pass for contention, opposite
+ordering, partial-set release, SIGKILL release, exec/fork inheritance, index
+protection and replacement refusal. The additive host-only store borrows the
+complete lease and revalidates every held resource before authority operations;
+15 store tests pass. Neither module activates contract-4 launchers.
+
+**U/N:** OpenCode disables extensions and trusted schema execution, bounds
+SQL/value sizes and VM work, and refuses unknown credential/account/selection
+triggers before source mutation. Synthetic malicious triggers preserve mixed
+rows, DB bytes and prior envelopes. The actual pinned amd64 native fixture
+passes this refusal and its existing native schema/service/storage cases.
+This does not qualify a complete schema or service quiescence contract.
+
+**N:** `make -C box verify-native-auth-disposable` now fetches and verifies
+architecture-pinned artifacts and runs all three existing synthetic native
+storage fixtures in exact disposable homes. The final amd64 run passes;
+log `/tmp/box-resume-native-storage-final.log`. Both workflows record the
+independent native-storage gate. Muse/OpenCode fixtures accept ARM64 pins,
+without claiming execution until the actual ARM64 job runs. No images or
+native credentials are uploaded; downloaded artifacts are removed by the
+run-owned TemporaryDirectory. Extraction/provenance refusal tests pass.
+
+Native discovery publication now uses the shared bounded unique-key/no-follow
+host filesystem API, retains unchanged record inodes, and preserves malformed
+records on refusal. Its discovery/removal regressions are being verified.
+The earlier broad local static run overlapped active edits and failed only
+changing embedded test-count assertions; it is not final-tree evidence.
+A fresh idle static run and newer published snapshot remain required.
+
+All remaining broad tasks stay open. Dedicated provider/MCP test accounts,
+actual callback/rotation/selection, restart/power-loss-controlled hosts and
+complete native manifests remain necessary. Current contract-3 launchers still
+mount canonical state; source-preserving migration, contract-4 supervision,
+immutable installation generations and release acceptance remain unfinished.
+
 ## Baseline gate completion and filesystem observations — 2026-10-08
 
 **Q01 is complete for its stated source-baseline/qualification-harness criteria.**

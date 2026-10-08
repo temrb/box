@@ -511,3 +511,27 @@ GitHub's [runner reference](https://docs.github.com/en/actions/reference/runners
 describes the separate VMs and architectures. Account and restart/durability
 gates still require their own qualified environment; a successful host build
 cannot close them.
+
+
+Account-independent native storage can also be checked without Docker. Set an
+existing private mode-700 scratch parent outside the checkout and run:
+
+```bash
+BOX_TEST_PROJECT_ROOT=/home/runner/box-qualification \
+make -C box verify-native-auth-disposable
+```
+
+This explicit target downloads the architecture's registry-pinned Muse,
+OpenCode and Codex artifacts, verifies their hashes before execution, and
+extracts only the expected regular executable. It runs synthetic native stores
+in unique private homes and removes its exact artifact/fixture tree. It never
+imports account credentials. Both qualification workflows record this as the
+separate `native-storage` gate; the existing `verify-native-auth-host` target
+continues accepting explicitly supplied artifact paths. Enabling an ARM64
+fixture does not establish an ARM64 pass until that fixture actually executes.
+
+The OpenCode helper disables extension loading and trusted schema execution,
+bounds SQL/value sizes and VM execution time, and refuses unqualified triggers
+on credential/account/selection tables before source mutation. This protects
+against those specific database mutants; the full pinned schema, native service
+quiescence and account acceptance gates remain open.

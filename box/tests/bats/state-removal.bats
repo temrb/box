@@ -293,3 +293,19 @@ DOCKER
   [ "$status" -ne 0 ]
   [ ! -e "$(box_auth_index_dir)" ]
 }
+
+@test "native discovery uses bounded unique-key records and preserves unchanged authority" {
+  box_state_record_native codex
+  index="$(box_auth_index_dir)/native/codex"
+  record=$(find "$index" -name '*.json' -type f -print -quit)
+  [ -n "$record" ]
+  before=$(stat -c '%i:%Y:%Z' "$record")
+  box_state_record_native codex
+  [ "$(stat -c '%i:%Y:%Z' "$record")" = "$before" ]
+  printf '{"descriptor":{},"descriptor":{}}' > "$record"
+  checksum=$(sha256sum "$record")
+  run box_state_record_native codex
+  [ "$status" -ne 0 ]
+  [ "$(sha256sum "$record")" = "$checksum" ]
+  [ "$(find "$index" -name '.box-control-*' | wc -l)" -eq 0 ]
+}

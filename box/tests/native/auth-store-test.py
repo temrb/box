@@ -81,6 +81,33 @@ class HostAuthority(unittest.TestCase):
         with self.authority.leased():
             self.assertEqual(identity, (self.lock.stat().st_dev, self.lock.stat().st_ino))
 
+    def test_borrowed_ordered_lease_requires_all_resources_until_completion(self):
+        request = store.locks.Request('auth', '/synthetic/canonical-identity')
+        native = store.locks.Request('native', '/synthetic/native-home')
+        lease = store.locks.Lease(self.root, [native, request])
+        authority = store.Store(self.identity, self.root / request.member, contract())
+        with self.assertRaises(ValueError):
+            with authority.leased(lease, request): pass
+        with lease.held():
+            fd = lease.descriptor(native)
+            with authority.leased(lease, request):
+                tx = authority.begin(0)
+                authority.collect(tx, members())
+                authority.publish(tx)
+                # Native authority replacement blocks canonical completion too.
+                path = self.root / native.member
+                path.rename(self.root / 'retained-native-lock')
+                path.touch(mode=0o600)
+                with self.assertRaises(ValueError): authority.acknowledge_scrub(tx)
+                path.unlink()
+                (self.root / 'retained-native-lock').rename(path)
+                authority.acknowledge_scrub(tx)
+                authority.complete(tx)
+            self.assertEqual(os.fstat(fd).st_ino, path.stat().st_ino)
+            lease.verify()
+        with authority.leased():
+            self.assertEqual(authority.read()['revision'], 1)
+
     def test_legacy_or_unacknowledged_members_refuse_without_shadowing(self):
         for name in ('credentials.json', 'identity.json', '.box-control-' + 'a' * 32):
             with self.subTest(name=name):

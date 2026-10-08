@@ -6,7 +6,7 @@ validators. Native payloads supply data only. This module has no Docker/native
 projection authority and no credential-printing CLI. Current contract-3 callers
 must not use it until their complete manifest and lifecycle gates are qualified.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
@@ -15,10 +15,15 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import sys
 
 _spec = importlib.util.spec_from_file_location('box_host_fs', Path(__file__).with_name('host-fs.py'))
 fs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fs)
+_lock_spec = importlib.util.spec_from_file_location('box_host_locks', Path(__file__).with_name('host-locks.py'))
+locks = importlib.util.module_from_spec(_lock_spec)
+sys.modules[_lock_spec.name] = locks
+_lock_spec.loader.exec_module(locks)
 
 TOKEN = re.compile(r'[a-z][a-z0-9_-]{0,63}\Z')
 TRANSACTION = re.compile(r'[0-9a-f]{32}\Z')
@@ -131,12 +136,27 @@ class Store:
         self._lease = None
 
     @contextmanager
-    def leased(self):
+    def leased(self, lock_set=None, request=None):
+        """Use a single legacy primitive or borrow the full ordered host lease.
+
+        Integration callers acquire installation/lifecycle/auth/native locks
+        first. Borrowing neither acquires nor closes their shared descriptor.
+        Every authority operation revalidates the complete set and owner PID.
+        """
         if self._lease is not None:
             raise ValueError('nested authority lease')
         private_directory(self.identity)
-        with fs.open_lock(self.lock) as fd:
-            self._lease = (fd, private_directory(self.identity), os.getpid())
+        if lock_set is None:
+            if request is not None:
+                raise ValueError('auth lock request requires a complete host lease')
+            acquisition = fs.open_lock(self.lock)
+        else:
+            if (type(lock_set) is not locks.Lease or type(request) is not locks.Request or
+                    request.category != 'auth' or self.lock != lock_set.root / request.member):
+                raise ValueError('canonical store does not match the held auth lock')
+            acquisition = nullcontext(lock_set.descriptor(request))
+        with acquisition as fd:
+            self._lease = (fd, private_directory(self.identity), os.getpid(), lock_set)
             try:
                 yield self
             finally:
@@ -145,9 +165,11 @@ class Store:
     def _authority(self):
         if self._lease is None:
             raise ValueError('host authority lease is required')
-        fd, identity, owner_pid = self._lease
+        fd, identity, owner_pid, lock_set = self._lease
         if os.getpid() != owner_pid:
             raise ValueError('inherited host lease is not transaction authority')
+        if lock_set is not None:
+            lock_set.verify()
         if private_directory(self.identity) != identity:
             raise ValueError('canonical authority directory was replaced')
         with fs.open_directory(self.identity) as directory:

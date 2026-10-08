@@ -16,15 +16,16 @@ def main():
     parser.add_argument("--binary", required=True)
     parser.add_argument("--scratch-root", required=True)
     args = parser.parse_args()
-    if platform.machine() != "x86_64":
-        raise SystemExit("BLOCKED: Muse host fixture currently qualifies amd64 artifacts only")
+    arch = {"x86_64": "AMD64", "aarch64": "ARM64"}.get(platform.machine())
+    if arch is None:
+        raise SystemExit("BLOCKED: unsupported Muse native fixture architecture")
     bundle = Path(__file__).resolve().parents[2]
     binary = Path(args.binary).resolve(strict=True)
-    pin = subprocess.run(["bash", "-p", "-c", 'source "$1/lib/pins.sh"; box_print_pin "$1" MUSE_SHA256_AMD64',
-                          "fixture", str(bundle)], env={"PATH": "/usr/bin:/bin", "BOX_TOOL": "fixture"},
+    pin = subprocess.run(["bash", "-p", "-c", 'source "$1/lib/pins.sh"; box_print_pin "$1" "$2"',
+                          "fixture", str(bundle), "MUSE_SHA256_" + arch], env={"PATH": "/usr/bin:/bin", "BOX_TOOL": "fixture"},
                          check=True, capture_output=True, text=True).stdout
     if hashlib.sha256(binary.read_bytes()).hexdigest() != pin:
-        raise ValueError("Muse binary does not match the pinned amd64 artifact")
+        raise ValueError("Muse binary does not match the pinned architecture artifact")
     with tempfile.TemporaryDirectory(prefix="muse-auth-fixture-", dir=args.scratch_root) as directory:
         root = Path(directory)
         env = dict(PATH="/usr/bin:/bin", HOME=str(root / "home"), LANG="C.UTF-8",
@@ -41,7 +42,7 @@ def main():
             return result
         version = run([str(binary), "--version"]).stdout.strip()
         assert version == "Muse Code 1.4.0 (1.4.0-R4161.1)"
-        print("N: Muse artifact SHA256=" + pin + "; native version=" + version)
+        print("N: Muse artifact SHA256=" + pin + "; arch=" + arch.lower() + "; native version=" + version)
         print("N: synthetic file API-key checks only; device/OAuth/MCP/trust membership unqualified")
         native = root / "config/muse/auth.json"
         envelope = root / "credentials.json"

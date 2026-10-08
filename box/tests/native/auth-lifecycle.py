@@ -37,6 +37,14 @@ def safe_run(argv, *, cwd=None, env=None, check=True, timeout=60):
             diagnostic = 'recovery-required'
         elif 'version file' in result.stderr.lower() or 'pins' in result.stderr.lower():
             diagnostic = 'installation-or-pin-refusal'
+        elif 'busy' in result.stderr.lower():
+            diagnostic = 'lock-busy'
+        elif 'transition' in result.stderr.lower():
+            diagnostic = 'scope-transition-refusal'
+        elif 'legacy' in result.stderr.lower() or 'migrat' in result.stderr.lower():
+            diagnostic = 'legacy-adoption-required'
+        elif 'credential' in result.stderr.lower() or 'auth' in result.stderr.lower():
+            diagnostic = 'auth-integrity-refusal'
         raise RuntimeError(f'Native fixture command failed: exit={result.returncode}, diagnostic={diagnostic} '
                            '(arguments/output withheld)')
     return result
@@ -135,10 +143,12 @@ def main():
                                     return ('test -f ' if present else 'test ! -e ') + path
                                 logout = 'rm -f -- ' + path
                             # Seed, restart, second-project scope behavior, and logout.
+                            phase = 'seed'
                             launch(projects[0], seed)
                             first = canonical(projects[0])
                             doc = json.loads((first / 'credentials.json').read_text())
                             assert doc['tombstone'] is False
+                            phase = 'restart'
                             launch(projects[0], check(True))
                             # Cleanup authorization is exact to the owned namespace.
                             first_volume = test_state('volume', harness, ns, uid, gid,
@@ -149,6 +159,7 @@ def main():
                                           call_env=dict(project_env(projects[0]), BOX_TOOL='auth-native'), check=False)
                             assert foreign.returncode != 0
                             if harness == 'opencode':
+                                phase = 'capture-independence'
                                 before_capture = (first / 'credentials.json').read_bytes()
                                 run(['bash', '-p', str(bundle / 'harnesses/opencode/capture-validation.sh'),
                                      '--output-dir', str(root / (ns + '-capture')), runtime],
@@ -162,6 +173,7 @@ def main():
                             assert (first / 'credentials.json').read_bytes() == before
                             # Switching scopes requires acknowledgment and preserves
                             # both the source credentials and unrelated project state.
+                            phase = 'scope-transitions'
                             alternate = 'project' if scope == 'global' else 'global'
                             changed = launch(projects[0], 'true', check=False, BOX_AUTH_SCOPE=alternate)
                             assert changed.returncode != 0 and 'transition' in changed.stderr.lower()
@@ -172,6 +184,7 @@ def main():
                             # An explicit copy into a different non-empty identity
                             # must preserve both stores and refuse to merge accounts.
                             if harness != 'muse':
+                                phase = 'copy-conflict'
                                 different_seed = seed.replace('synthetic', 'synthetic-other')
                                 launch(projects[0], different_seed, BOX_AUTH_SCOPE=alternate,
                                        BOX_AUTH_TRANSITION='use-existing')
@@ -189,6 +202,7 @@ def main():
                                 assert all((p / 'credentials.json').read_bytes() == data for p, data in originals.items())
                                 launch(projects[0], check(True), BOX_AUTH_TRANSITION='use-existing')
                             # Alias retains the physical identity.
+                            phase = 'alias'
                             alias = root / (ns + '-alias')
                             alias.symlink_to(projects[0], target_is_directory=True)
                             assert canonical(alias) == first

@@ -284,32 +284,27 @@ box_state_record_native() {
       value=${!variable:-}
       [[ -z "$value" ]] || overrides+=("$variable=$value")
     done
-    python3 -I - "$index" "$descriptor" "${overrides[@]}" <<'RECORD' || die 'Cannot record native state descriptor.'
-import hashlib, json, os, stat, sys, tempfile
-index, raw = sys.argv[1:3]
+    python3 -I - "${BASH_SOURCE[0]%/*}/host-fs.py" "$index" "$descriptor" "${overrides[@]}" <<'RECORD' || die 'Cannot record native state descriptor.'
+import hashlib, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location('host_fs', sys.argv[1])
+fs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fs)
+index, raw = sys.argv[2:4]
 d = dict(line.split("=", 1) for line in raw.splitlines())
 name = hashlib.sha256((d["state"] + "\n" + d["path"] + "\n" + d["project_hash"]).encode()).hexdigest() + ".json"
 path = os.path.join(index, name)
-doc = {"descriptor": d, "overrides": dict(x.split("=", 1) for x in sys.argv[3:]), "fixture_project": "BOX_TEST_PROJECT_HASH" in os.environ}
+doc = {"descriptor": d, "overrides": dict(x.split("=", 1) for x in sys.argv[4:]), "fixture_project": "BOX_TEST_PROJECT_HASH" in os.environ}
 if os.path.lexists(path):
-    info = os.lstat(path)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
-        raise ValueError("unsafe discovery record")
-    old = json.load(open(path, encoding="utf-8"))
+    old = fs.read_json(path, required_mode=0o600)
+    if (set(old) != {"descriptor", "overrides", "fixture_project"} or
+            type(old['descriptor']) is not dict or type(old['overrides']) is not dict or
+            type(old['fixture_project']) is not bool):
+        raise ValueError('unsupported discovery record')
     if old["descriptor"]["project"] != d["project"]:
         raise ValueError("project identity collision")
-fd, tmp = tempfile.mkstemp(prefix=".native.", dir=index)
-with os.fdopen(fd, "w", encoding="utf-8") as stream:
-    json.dump(doc, stream, sort_keys=True)
-    stream.write("\n")
-    stream.flush()
-    os.fsync(stream.fileno())
-os.replace(tmp, path)
-fd = os.open(index, os.O_RDONLY | os.O_DIRECTORY)
-try:
-    os.fsync(fd)
-finally:
-    os.close(fd)
+    if old == doc:
+        sys.exit(0)
+fs.write_json(path, doc)
 RECORD
   done
 }
