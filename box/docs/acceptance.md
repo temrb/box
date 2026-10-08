@@ -9,6 +9,9 @@ Make-driven pinned disposable native storage gate. All three amd64 synthetic
 native fixtures pass; ARM64 fixture execution is pending. Neither synthetic
 fixtures nor running CI close native/account/power-loss or production cutover
 gates. The current schema-1/contract-3 launchers still mount canonical state.
+Public raw SQLite snapshot migration/recovery now refuses, preserving sources
+and old recovery journals; the default contained native volume path remains.
+Contained snapshot recovery is unfinished and is not replaced by host parsing.
 
 ## Earlier baseline, hosted Docker and ext4 observations (2026-10-08)
 

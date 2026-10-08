@@ -111,7 +111,7 @@ PY
   jq -e '.state == "idle"' -- "$dir/lease.json" >/dev/null
 }
 
-@test "opencode migrates through an explicit db export" {
+@test "opencode raw snapshot migration refuses before host parsing or authority creation" {
   db="$TEST_TMP/opencode.db"
   python3 -I "$BUNDLE_DIR/harnesses/opencode/auth-state.py" install --db "$db" --envelope /dev/null 2>/dev/null || true
   python3 -I - "$db" <<'PY'
@@ -123,10 +123,12 @@ con.execute('INSERT OR REPLACE INTO "credential" ("id","integration_id","value")
 con.commit(); con.close()
 PY
   run box_ops_migrate opencode "$project" --db-path "$db"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'host SQLite migration is refused'* ]]
   h=$(box_state_project_hash "$project")
   dir=$(box_auth_object_dir opencode project "$host_uid" "$h")
-  jq -e '.payload.credentials[0].id == "cred-1"' -- "$dir/credentials.json" >/dev/null
+  [ ! -e "$dir" ]
+  [ "$(python3 -I -c 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT COUNT(*) FROM credential").fetchone()[0])' "$db")" = 1 ]
 }
 
 @test "recovery completes source retirement with a raw file rollback" {
@@ -229,4 +231,37 @@ PY
   [[ "$output" == *"Missing projection"* ]]
   [ "$before" = "$(sha256sum "$dir/credentials.json")" ]
   jq -e '.state == "active"' "$dir/lease.json"
+}
+
+@test "raw database recovery selectors refuse before reading source or creating state" {
+  db="$TEST_TMP/hostile-snapshot.db"
+  printf 'deliberately malformed native database' > "$db"
+  before=$(sha256sum "$db")
+  for argument in --db-path --native; do
+    run box_ops_recover opencode "$project" "$argument" "$db"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'refused'* ]]
+    [ "$(sha256sum "$db")" = "$before" ]
+    [ ! -e "$(box_auth_index_dir)" ]
+  done
+  for action in box_ops_migrate box_ops_recover; do
+    run "$action" opencode "$project" --db-path=
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'requires a nonempty path'* ]]
+    [ ! -e "$(box_auth_index_dir)" ]
+  done
+}
+
+@test "legacy raw database journal recovery preserves source and journal on refusal" {
+  h=$(box_state_project_hash "$project")
+  dir=$(box_auth_object_dir opencode project "$host_uid" "$h")
+  box_auth_ensure_object "$dir" opencode project "$host_uid" "$h"
+  db="$TEST_TMP/retained-snapshot.db"
+  printf 'unparsed retained database bytes' > "$db"
+  box_ops_write_journal "$dir" planned "$db" "$dir"
+  before=$(sha256sum "$db" "$dir/migration-journal.json" "$dir/credentials.json" "$dir/lease.json")
+  run box_ops_recover opencode "$project"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'raw database migration journal requires qualified contained recovery'* ]]
+  [ "$(sha256sum "$db" "$dir/migration-journal.json" "$dir/credentials.json" "$dir/lease.json")" = "$before" ]
 }

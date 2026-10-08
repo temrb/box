@@ -176,16 +176,23 @@ resolver; inspection stays in launcher dry-run):
 
 ```bash
 make -C box state-plan HARNESS=<id> PROJECT=<path>
-make -C box auth-migrate HARNESS=<id> PROJECT=<path> [DB_PATH=<file>]
+make -C box auth-migrate HARNESS=<id> PROJECT=<path>
 make -C box auth-copy HARNESS=<id> SRC_SCOPE=<s> [SRC_HASH=<h>] DST_SCOPE=<s> [DST_HASH=<h>] [PROJECT=<path>]
 make -C box auth-init HARNESS=<id> PROJECT=<path>
-make -C box auth-recover HARNESS=<id> PROJECT=<path> [NATIVE=<file>] [DB_PATH=<file>]
+make -C box auth-recover HARNESS=<id> PROJECT=<path> [NATIVE=<file>]
 make -C box state-remove HARNESS=<id> PROJECT=<path> [EXECUTE=1]
 # Full canonical auth inventory for this harness/user, including historical roots:
 make -C box state-remove HARNESS=<id> PROJECT=<path> ALL_PROJECTS=1 INCLUDE_GLOBAL=1
 # Add AUTH_ROOT=/absolute/old/root for a root used before discovery was recorded.
 make -C box project-reset HARNESS=<id> PROJECT=<path> [KEEP_AUTH=1] [EXECUTE=1]
 ```
+
+OpenCode migration and recovery use the resolved or recorded contained native
+volume. Raw `DB_PATH` snapshots and OpenCode `NATIVE` host-file overrides refuse
+before parsing or importing database contents. Older raw-snapshot recovery
+journals remain preserved and require qualified contained recovery support;
+do not remove them to force a fresh launch. `NATIVE` remains available for the
+regular-file adapters with their recorded projection checks.
 
 `auth-migrate` journals `planned → staged → destination-committed →
 verified → source-retired → complete`, preserves the source until

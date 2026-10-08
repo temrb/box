@@ -65,9 +65,10 @@ box_adapter_retire() {
 }
 
 # Legacy source for migration: OpenCode's mixed database lives on a project
-# volume, never on a host path, so migration needs an explicit --db-path
-# export of the v2 project database (never auto-opens a live volume).
-# Prints the path. Dies closed without an explicit path. Storage mechanics
+# volume. Public migration/recovery uses the contained volume adapter and
+# refuses raw host snapshot paths pending qualified contained import support.
+# This adapter coordinate function also serves synthetic storage fixtures.
+# Prints the path. Storage mechanics
 # live here so shared code never branches on harness names.
 # Usage: box_adapter_legacy_source <project-path> <project-hash> [db-path]
 box_adapter_legacy_source() {

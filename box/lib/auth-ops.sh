@@ -274,11 +274,12 @@ box_ops_migrate() (
   shift 2
   while (($#)); do
     case "$1" in
-      --db-path) [[ $# -ge 2 ]] || die '--db-path requires a path.'; db=$2; shift 2 ;;
-      --db-path=*) db=${1#--db-path=}; shift ;;
+      --db-path) [[ $# -ge 2 && -n "$2" ]] || die '--db-path requires a nonempty path.'; db=$2; shift 2 ;;
+      --db-path=*) db=${1#--db-path=}; [[ -n "$db" ]] || die '--db-path requires a nonempty path.'; shift ;;
       *) die "Unknown migrate argument: $1" ;;
     esac
   done
+  [[ -z "$db" ]] || die 'Raw database snapshots require qualified contained import; host SQLite migration is refused and the source is preserved. Omit DB_PATH to use the resolved contained native volume.'
   command -v jq >/dev/null 2>&1 || die 'jq is required for auth migration.'
   local uid gid hash scope dir legacy staged rollback volume
   uid=$(id -u) || die 'Cannot determine UID.'
@@ -506,11 +507,15 @@ box_ops_recover() (
     case "$1" in
       --native) [[ $# -ge 2 ]] || die '--native requires a path.'; native=$2; shift 2 ;;
       --native=*) native=${1#--native=}; shift ;;
-      --db-path) [[ $# -ge 2 ]] || die '--db-path requires a path.'; db=$2; shift 2 ;;
-      --db-path=*) db=${1#--db-path=}; shift ;;
+      --db-path) [[ $# -ge 2 && -n "$2" ]] || die '--db-path requires a nonempty path.'; db=$2; shift 2 ;;
+      --db-path=*) db=${1#--db-path=}; [[ -n "$db" ]] || die '--db-path requires a nonempty path.'; shift ;;
       *) die "Unknown recover argument: $1" ;;
     esac
   done
+  [[ -z "$db" ]] || die 'Raw database snapshots require qualified contained recovery; host SQLite recovery is refused and all source evidence is preserved.'
+  local contained_adapter
+  contained_adapter=$(box_state_field "$id" auth volume_adapter)
+  [[ -z "$contained_adapter" || -z "$native" ]] || die 'A mixed native database must recover through its recorded contained volume; host native-path overrides are refused.'
   local uid hash scope dir target
   uid=$(id -u) || die 'Cannot determine UID.'
   proj=$(box_realpath -e -- "$proj") || die 'Cannot resolve project path.'
@@ -526,6 +531,9 @@ box_ops_recover() (
   box_auth_ensure_object "$dir" "$id" "$scope" "$uid" "$hash" || return 1
   local projection_lock recorded
   recorded=$(jq -r '.projection // empty' -- "$dir/lease.json") || die 'Cannot read auth lease.'
+  if [[ -n "$contained_adapter" && -n "$recorded" && "$recorded" != volume:* ]]; then
+    die 'Recorded raw database recovery requires qualified contained snapshot support; projection and journal are preserved.'
+  fi
   projection_lock=$(jq -r '.projection_lock // empty' -- "$dir/lease.json") || die 'Cannot read auth lease.'
   if [[ -z "$projection_lock" ]]; then
     case "$recorded" in
@@ -593,6 +601,9 @@ box_ops_recover() (
     source=$(jq -er '.source' "$dir/migration-journal.json") || die 'Invalid migration source.'
     destination=$(jq -er '.destination' "$dir/migration-journal.json") || die 'Invalid migration destination.'
     [[ "$destination" == "$dir" ]] || die 'Migration journal names a different destination.'
+    if [[ -n "$contained_adapter" && ! -f "$source/identity.json" && "$source" != volume:* ]]; then
+      die 'Legacy raw database migration journal requires qualified contained recovery; source and journal are preserved.'
+    fi
     box_ops_guard_test_domain "$source"
     case "$stage" in
       complete) ;;

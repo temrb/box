@@ -62,8 +62,8 @@ if [[ -d "$BOX_AUTH_DIR" && -f "$BOX_AUTH_DIR/credentials.json" && -f "$BOX_AUTH
   # Volume-backed migration gate (container-side, non-secret metadata only):
   # when no migration record exists and the project database already holds
   # credential rows, refuse to overwrite them with an empty canonical
-  # envelope. The operator must run an explicit auth-migrate (with --db-path
-  # export) or auth-init before the first managed launch. Fresh databases
+  # envelope. The operator must run an explicit contained-volume auth-migrate
+  # or auth-init before the first managed launch. Fresh databases
   # (absent or no credential table/rows) proceed.
   if [[ ! -f "$BOX_AUTH_DIR/migration.json" ]]; then
     if [[ -f "$BOX_DB" ]] && python3 -I - "$BOX_DB" 2>/dev/null <<'PY'; then
@@ -83,7 +83,7 @@ PY
     else
       rc=$?
       if [[ "$rc" == 10 ]]; then
-        echo 'FAIL: legacy OpenCode credentials exist without migration (project database holds credential rows but no migration record). Run auth-migrate with an explicit --db-path export, or auth-init for a fresh identity.' >&2
+        echo 'FAIL: legacy OpenCode credentials exist without migration (project database holds credential rows but no migration record). Run auth-migrate for the resolved contained volume, or auth-init for a fresh identity.' >&2
         exit 1
       fi
       # Unreadable database: let the adapter validation fail closed below.

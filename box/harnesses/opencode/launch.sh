@@ -40,7 +40,7 @@ if ((dry_run)); then
   printf 'Execution domain: %s\n' "$([ -n "${BOX_TEST_STATE_NS:-}" ] && printf 'test' || printf 'production')"
   printf 'Auth scope: %s\nAuth policy source: %s\nCanonical auth directory: %s\nNative projection: volume %s (/persist/data/opencode/opencode/opencode.db)\nNon-auth volume: %s\n' \
     "$opencode_auth_scope" "$opencode_auth_source" "$opencode_auth_dir" "$volume" "$volume"
-  box_auth_dryrun_report opencode "$host_uid" "$project_hash" "volume:$volume (/persist/data/opencode/opencode/opencode.db; explicit --db-path export required for migration)"
+  box_auth_dryrun_report opencode "$host_uid" "$project_hash" "volume:$volume (/persist/data/opencode/opencode/opencode.db; contained volume migration; raw DB_PATH snapshots refused)"
 fi
 
 # Parse literal KEY=value entries; never source the credentials file.

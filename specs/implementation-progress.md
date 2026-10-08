@@ -55,7 +55,22 @@ host filesystem API, retains unchanged record inodes, and preserves malformed
 records on refusal. Its discovery/removal regressions are being verified.
 The earlier broad local static run overlapped active edits and failed only
 changing embedded test-count assertions; it is not final-tree evidence.
-A fresh idle static run and newer published snapshot remain required.
+Snapshot `a1b45da365f5dbaadf952d016e31b03308d5acc5` contains the lease/storage/
+trigger/discovery work. A separate fetched checkout compares equal to its
+preserved source inventory. Its qualification run is `37812886914` (pending
+at publication; no acceptance claimed).
+
+Subsequent security review found public raw OpenCode `DB_PATH` migration and
+recovery could still open SQLite on the host. Those selectors now refuse before
+source parsing or canonical/index creation; OpenCode native-file overrides also
+refuse. Recorded raw database projections and historical snapshot journals
+remain preserved for qualified contained recovery. The default contained volume
+path is retained. Fourteen migration/refusal cases and the broader 49-case
+migration/volume/lifecycle group pass (**U**); source/journal/envelope/lease
+checksums survive refusal. Operators must not erase old journals to force reuse.
+This intentionally closes the unsafe shortcut, not the still-unimplemented
+contained raw snapshot import/recovery gate. Fresh final static verification
+and an updated exact-source snapshot remain required.
 
 All remaining broad tasks stay open. Dedicated provider/MCP test accounts,
 actual callback/rotation/selection, restart/power-loss-controlled hosts and
