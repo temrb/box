@@ -116,3 +116,26 @@ assert 'synthetic-private-sentinel' not in str(result)
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "installed lifecycle audit shares the account-independent environment and privacy boundary" {
+  run python3 -I - "$BATS_TEST_DIRNAME/../native/lifecycle-audit.py" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location('audit', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+ambient = dict(OPENAI_API_KEY='synthetic-private-sentinel', BOX_AUTH_HELPER='/foreign/helper',
+               BASH_ENV='/foreign/hook', XDG_DATA_HOME='/foreign/store', LANG='C.UTF-8')
+assert set(module.fixture_environment(ambient)) == {'PATH', 'LANG'}
+try:
+    module.safe_run([sys.executable, '-I', '-c', 'import sys; print(sys.argv[1]); sys.exit(4)',
+                     'synthetic-private-sentinel'])
+except RuntimeError as error:
+    assert 'synthetic-private-sentinel' not in str(error)
+else:
+    raise AssertionError('failure accepted')
+source = pathlib.Path(sys.argv[1]).read_text()
+assert 'dict(os.environ' not in source and 'p.stderr' not in source
+PY
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'synthetic-private-sentinel'* ]]
+}

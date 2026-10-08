@@ -69,8 +69,16 @@ path is retained. Fourteen migration/refusal cases and the broader 49-case
 migration/volume/lifecycle group pass (**U**); source/journal/envelope/lease
 checksums survive refusal. Operators must not erase old journals to force reuse.
 This intentionally closes the unsafe shortcut, not the still-unimplemented
-contained raw snapshot import/recovery gate. Fresh final static verification
-and an updated exact-source snapshot remain required.
+contained raw snapshot import/recovery gate. The raw-path refusal snapshot is
+`664c450a6baebd501fe5c584855e483880bae13e`; a separate fetched checkout's
+source inventory compares equal to its dirty baseline. Fresh final static
+verification and qualification outcomes remain required.
+
+The separate installed `lifecycle-audit.py` now shares the sanitized environment
+and private failure/timeout runner with `auth-lifecycle.py`, drops ambient
+account/backend/shell selectors and uses privileged-mode nested Bash. Seven
+provenance/environment/privacy cases pass (**U**). Actual lifecycle execution
+and complete installed release workflows remain unaccepted.
 
 All remaining broad tasks stay open. Dedicated provider/MCP test accounts,
 actual callback/rotation/selection, restart/power-loss-controlled hosts and

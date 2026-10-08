@@ -1,49 +1,48 @@
 """Disposable installed-launcher moves, aliases, resets and uninstall evidence."""
 import hashlib
+import importlib.util
 import json
 import os
-import subprocess
 from pathlib import Path
 import shutil
 import tempfile
 
 
 STEM_IDS = {'m': 'muse', 'o': 'opencode', 'c': 'codex'}
+_spec = importlib.util.spec_from_file_location('native_lifecycle', Path(__file__).with_name('auth-lifecycle.py'))
+_native = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_native)
+fixture_environment = _native.fixture_environment
+safe_run = _native.safe_run
 
 
 def main():
     bundle = Path(__file__).resolve().parents[2]
-    subprocess.run(["python3", "-I", str(bundle / "tests/native/auth-lifecycle.py")], check=True)
+    initial = fixture_environment(os.environ)
+    initial['HOME'] = str(Path.home())
+    if 'BOX_TEST_PROJECT_ROOT' in os.environ:
+        initial['BOX_TEST_PROJECT_ROOT'] = os.environ['BOX_TEST_PROJECT_ROOT']
+    safe_run(["python3", "-I", str(bundle / "tests/native/auth-lifecycle.py")], env=initial, timeout=1800)
     tstate_lib = bundle / 'lib' / 'test-state.sh'
     real_home = Path.home()
     with tempfile.TemporaryDirectory(prefix='.box-lifecycle-', dir=os.environ.get('BOX_TEST_PROJECT_ROOT', str(real_home))) as directory:
         root = Path(directory); home = root / 'home'; home.mkdir(mode=0o700)
         project = root / 'project'; project.mkdir(mode=0o700)
-        env = dict(os.environ, HOME=str(home))
-        # Explicitly avoid caller credentials, caches, pins and config overrides.
-        for key in list(env):
-            if key.startswith(('BOX_M_', 'BOX_O_', 'BOX_C_')):
-                del env[key]
-        for key in ('BOX_AUTH_SCOPE', 'BOX_AUTH_ROOT', 'BOX_STATE_CONFIG', 'BOX_AUTH_TRANSITION', 'BOX_TEST_PROJECT_HASH'):
-            env.pop(key, None)
-        for prefix in ('BOX_M', 'BOX_O', 'BOX_C'):
-            env[prefix + '_GIT_NAME'] = 'Lifecycle Fixture'
-            env[prefix + '_GIT_EMAIL'] = 'fixture@example.invalid'
+        env = dict(fixture_environment(os.environ), HOME=str(home))
         # Phase-S disposable test namespace (specs/plan.md §0 B0): every
         # launcher invocation resolves to `box-test-<ns>-` identities only,
         # so lifecycle tests can never mount or remove production globals.
         env['BOX_TEST_REAL_HOME'] = str(real_home)
         env['BOX_TEST_TASK_ROOT'] = str(root)
-        cli_base = dict(os.environ, BOX_TOOL='lifecycle-audit.py')
+        cli_base = dict(env, BOX_TOOL='lifecycle-audit.py')
         docker = ['docker', '--config', str(home / '.config/box-m/docker-cli'), '--host', 'unix:///var/run/docker.sock']
         volumes = []
         volume_spec = {}
         uid_gid = (str(os.getuid()), str(os.getgid()))
         def tstate(*args):
-            p = subprocess.run(['bash', str(tstate_lib), *args], env=cli_base,
-                               capture_output=True, text=True, timeout=60)
+            p = safe_run(['bash', '-p', str(tstate_lib), *args], env=cli_base)
             if p.returncode:
-                raise RuntimeError('test-state %s: %s' % (' '.join(args), p.stderr[-1000:]))
+                raise RuntimeError('test-state refused (arguments/output withheld)')
             return p.stdout
         def new_ns():
             return tstate('new-ns').strip()
@@ -59,25 +58,24 @@ def main():
             stem_id, ns = volume_spec[volume_name]
             tstate('guard-cleanup', volume_name, stem_id, ns, *uid_gid)
         def run(argv, cwd=None, check=True):
-            p = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=60)
+            p = safe_run(argv, cwd=cwd, env=env, check=check)
             if check and p.returncode:
-                raise RuntimeError('%s: %s' % (argv, p.stderr[-1000:]))
+                raise RuntimeError('lifecycle command refused (arguments/output withheld)')
             return p
         def record(case, **data):
             print(json.dumps(dict(case=case, **data)), flush=True)
         def identity(path):
-            return subprocess.run(['bash', str(bundle / 'lib/state.sh'), 'project-hash', str(path)],
-                                  env=dict(env, BOX_TOOL='lifecycle'), check=True, text=True,
-                                  capture_output=True).stdout.strip()
+            return safe_run(['bash', '-p', str(bundle / 'lib/state.sh'), 'project-hash', str(path)],
+                            env=dict(env, BOX_TOOL='lifecycle')).stdout.strip()
         def launch(stem, path, command, ns, flag='--runsc', check=True):
             call_env = dict(env, BOX_TEST_STATE_NS=ns)
             if stem == 'c':
                 # Test Codex root selects exactly <task-root>/<ns>/codex-home.
                 call_env['BOX_C_STATE_ROOT'] = str(codex_home(ns).parent)
-            p = subprocess.run([str(home / '.local/bin' / ('box-' + stem)), flag, '--shell', '-c', command],
-                               cwd=path, env=call_env, capture_output=True, text=True, timeout=60)
+            p = safe_run([str(home / '.local/bin' / ('box-' + stem)), flag, '--shell', '-c', command],
+                         cwd=path, env=call_env, check=check)
             if check and p.returncode:
-                raise RuntimeError('%s: %s' % (command, p.stderr[-1000:]))
+                raise RuntimeError('native launch refused (arguments/output withheld)')
             return p
         def inventory(path):
             return {str(p.relative_to(path)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -87,16 +85,16 @@ def main():
             call_env = dict(env, BOX_TEST_STATE_NS=ns, BOX_AUTH_SCOPE=scope)
             if stem == 'c':
                 call_env['BOX_C_STATE_ROOT'] = str(codex_home(ns).parent)
-            p = subprocess.run([str(home / '.local/bin' / ('box-' + stem)), '--dry-run'],
-                               cwd=path, env=call_env, capture_output=True, text=True, timeout=60)
+            p = safe_run([str(home / '.local/bin' / ('box-' + stem)), '--dry-run'],
+                         cwd=path, env=call_env)
             if p.returncode:
-                raise RuntimeError('%s dry-run: %s' % (stem, p.stderr[-1000:]))
+                raise RuntimeError('native dry-run refused (output withheld)')
             for line in p.stdout.splitlines():
                 if line.startswith('Canonical auth directory: '):
                     return line.split(': ', 1)[1]
             raise RuntimeError('%s dry-run hid its canonical auth directory' % stem)
         try:
-            run(['bash', str(bundle / 'setup.sh'), '--skip-build'])
+            run(['bash', '-p', str(bundle / 'setup.sh'), '--skip-build'])
             providers = home / '.config/box/providers.env'
             assert providers.read_bytes() == b''
             old_hash = identity(project)
