@@ -9,7 +9,13 @@ while [[ "$1" == --* ]]; do shift 2; done
 case "$1 $2" in
   'ps -aq'|'ps -q') exit 0 ;;
   'volume ls') cat "$FAKE_VOLUMES" ;;
-  'volume inspect') printf '{"Name":"%s","CreatedAt":"fixture","Driver":"local"}\n' "${@: -1}" ;;
+  'volume inspect')
+    created=fixture
+    if [[ -n "${FAKE_REPLACE_ON_RECHECK:-}" ]]; then
+      if [[ -e "$FAKE_REPLACE_ON_RECHECK" ]]; then created=replaced
+      else : >"$FAKE_REPLACE_ON_RECHECK"; fi
+    fi
+    printf '{"Name":"%s","CreatedAt":"%s","Driver":"local"}\n' "${@: -1}" "$created" ;;
   'volume rm') name=${@: -1}; sed -i "\\|^$name$|d" "$FAKE_VOLUMES" ;;
   *) exit 1 ;;
 esac
@@ -212,6 +218,62 @@ DOCKER
   run box_ops_remove_full codex "$project" --execute
   [ "$status" -eq 0 ]
   [ "$(cat "$FAKE_VOLUMES")" = "$volume" ]
+}
+
+@test "reset and full removal preserve a volume replaced after transaction preparation" {
+  fake_state_docker
+  h=$(box_state_project_hash "$project")
+  volume=$(box_state_volume_name codex "$host_uid" "$host_gid" "$h")
+  export FAKE_REPLACE_ON_RECHECK="$TEST_TMP/inspected"
+  for operation in reset full; do
+    printf '%s\n' "$volume" >"$FAKE_VOLUMES"
+    : >"$FAKE_DOCKER_CALLS"
+    if [[ "$operation" == reset ]]; then
+      run box_ops_reset codex "$project" --keep-auth --execute
+    else
+      # Separate the full-removal transaction from the unfinished reset.
+      export BOX_C_STATE_ROOT="$HOME/full-native"
+      mkdir -m 700 "$PROJ_ROOT/full-project"
+      project="$PROJ_ROOT/full-project"
+      h=$(box_state_project_hash "$project")
+      volume=$(box_state_volume_name codex "$host_uid" "$host_gid" "$h")
+      printf '%s\n' "$volume" >"$FAKE_VOLUMES"
+      rm -f -- "$FAKE_REPLACE_ON_RECHECK"
+      run box_ops_remove_full codex "$project" --execute
+    fi
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'volume was replaced before deletion'* ]]
+    [ "$(cat "$FAKE_VOLUMES")" = "$volume" ]
+    ! rg -q 'volume rm' "$FAKE_DOCKER_CALLS"
+  done
+}
+
+@test "volume deletion verification refuses absent authority and corrupt identity without changing checkpoint" {
+  journal="$TEST_TMP/volume-checkpoint.json"
+  identity='{"Name":"fixture-volume","CreatedAt":"original","Driver":"local"}'
+  run python3 -I "$BUNDLE_DIR/lib/state-transaction.py" prepare --journal "$journal" \
+    --root '' --harness codex --uid "$host_uid" --gid "$host_gid" --project-hash abc \
+    --volume fixture-volume --volume-identity "$identity"
+  [ "$status" -eq 0 ]
+  before=$(sha256sum "$journal")
+  for candidate in '' '[]' '{' '{"Name":"fixture-volume","Name":"fixture-volume"}' \
+    '{"Name":"fixture-volume","CreatedAt":"replacement","Driver":"local"}'; do
+    run python3 -I "$BUNDLE_DIR/lib/state-transaction.py" verify-volume --journal "$journal" \
+      --volume-identity "$candidate"
+    [ "$status" -ne 0 ]
+    [ "$(sha256sum "$journal")" = "$before" ]
+  done
+  run python3 -I "$BUNDLE_DIR/lib/state-transaction.py" verify-volume --journal "$journal" \
+    --volume-identity "$identity"
+  [ "$status" -eq 0 ]
+  [ "$(sha256sum "$journal")" = "$before" ]
+  jq 'del(.volume_identity)' "$journal" >"$TEST_TMP/without-authority"
+  cp "$TEST_TMP/without-authority" "$journal"
+  before=$(sha256sum "$journal")
+  run python3 -I "$BUNDLE_DIR/lib/state-transaction.py" verify-volume --journal "$journal" \
+    --volume-identity "$identity"
+  [ "$status" -ne 0 ]
+  [ "$(sha256sum "$journal")" = "$before" ]
 }
 
 @test "historical volume descriptors are explicit and cannot target another harness family" {

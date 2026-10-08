@@ -133,6 +133,9 @@ def main():
                        choices=("planned", "home_removed", "volume_removed", "auth_removed"))
     finish = subs.add_parser("finish")
     finish.add_argument("--journal", required=True)
+    verify_volume = subs.add_parser("verify-volume")
+    verify_volume.add_argument("--journal", required=True)
+    verify_volume.add_argument("--volume-identity", required=True)
     args = parser.parse_args()
     journal = Path(args.journal)
     if args.command == "prepare":
@@ -157,6 +160,16 @@ def main():
                 verify_remaining(root, old["home"])
             return
         write_journal(journal, expected)
+    elif args.command == "verify-volume":
+        doc = read_journal(journal)
+        # An absent volume is handled by the caller without deletion. A
+        # surviving name needs the original, nonempty creation identity.
+        if not args.volume_identity or not doc.get("volume_identity"):
+            fail("volume deletion requires recorded creation identity")
+        actual = json.loads(args.volume_identity, object_pairs_hook=host_fs.unique_object)
+        recorded = json.loads(doc["volume_identity"], object_pairs_hook=host_fs.unique_object)
+        if type(actual) is not dict or actual != recorded or actual.get("Name") != doc["volume"]:
+            fail("volume was replaced before deletion")
     elif args.command == "remove-home":
         doc = read_journal(journal)
         if doc["root"]:

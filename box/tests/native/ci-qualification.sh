@@ -42,14 +42,22 @@ for id in $box_tool_ids; do
     for selector in $(box_state_field "$id" "$state" override); do unset "$selector"; done
   done
 done
-unset BOX_AUTH_SCOPE BOX_AUTH_ROOT BOX_AUTH_TRANSITION BOX_AUTH_RUNTIME BOX_STATE_CONFIG
+unset BOX_AUTH_SCOPE BOX_AUTH_ROOT BOX_AUTH_TRANSITION BOX_AUTH_RUNTIME BOX_STATE_CONFIG BOX_AUTH_HELPER BOX_BUNDLE_DIR
 unset BOX_TEST_STATE_NS BOX_TEST_TASK_ROOT BOX_TEST_REAL_HOME BOX_TEST_PROJECT_HASH
 unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS_VERIFY DOCKER_CERT_PATH
 # Ambient account keys must not turn synthetic tests into account qualification.
 unset OPENAI_API_KEY ANTHROPIC_API_KEY META_API_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 # Refuse protected production coordinates without reading their contents.
-(project=$qualification_root; box_preflight_denylist; box_preflight_home; box_preflight_credentials; box_preflight_tool_dirs)
-for prerequisite in bash make git python3 jq shellcheck bats docker runsc; do
+validate_qualification_parent() {
+  local project=$qualification_root box_physical_home
+  local -a box_credential_targets box_tool_targets
+  box_preflight_denylist
+  box_preflight_home
+  box_preflight_credentials
+  box_preflight_tool_dirs
+}
+validate_qualification_parent
+for prerequisite in bash make git python3 jq shellcheck bats rg docker runsc; do
   command -v "$prerequisite" >/dev/null || die "Missing qualification prerequisite: $prerequisite"
 done
 python3 -I -c 'import tomllib' || die 'Qualification needs Python 3.11+.'
@@ -67,6 +75,12 @@ run_gate() {
   local name=$1 rc
   shift
   if "$@" >"$evidence/$name.log" 2>&1; then rc=0; else rc=$?; failed=1; fi
+  if [[ "$rc" == 0 && ( "$name" == static || "$name" == live ) ]] &&
+      grep -Eq '^ok [0-9]+ .*# skip' "$evidence/$name.log"; then
+    printf 'Required qualification cases skipped; gate remains unmet.\n' >>"$evidence/$name.log"
+    rc=3
+    failed=1
+  fi
   printf '%s\t%s\t%s\n' "$name" "$rc" "$(sha256sum "$evidence/$name.log" | cut -d ' ' -f 1)" >>"$evidence/gates.tsv"
   printf 'qualification %s: exit %s\n' "$name" "$rc"
   return "$rc"
@@ -81,6 +95,19 @@ run_gate generated make -C "$bundle_dir" verify-generated || true
 # Installation populates only the disposable HOME. Build is via Make only.
 if run_gate install bash -p "$bundle_dir/setup.sh" --skip-build; then
   if run_gate build make -C "$bundle_dir" build; then
+    # shellcheck disable=SC2317,SC2329 # invoked indirectly by run_gate
+    record_images() (
+      # shellcheck source=lib/build.sh
+      source "$bundle_dir/lib/build.sh"
+      local id tag
+      for id in $box_tool_ids; do
+        tag=$(box_image_tag "$id" "$bundle_dir" "$host_uid" "$host_gid")
+        box_docker_cli "$HOME/.config/$(box_tool_field "$id" config_dir)/docker-cli"
+        printf 'harness=%s tag=%s\n' "$id" "$tag"
+        "${docker_cmd[@]}" image inspect --format '{{.Id}}|{{.Config.User}}|{{json .Config.Labels}}' "$tag" || return 1
+      done
+    )
+    run_gate image-provenance record_images || true
     run_gate live make -C "$bundle_dir" test-live || true
     run_gate opencode make -C "$bundle_dir" verify-native-opencode || true
     run_gate native make -C "$bundle_dir" verify-native || true

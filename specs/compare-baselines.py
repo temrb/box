@@ -75,13 +75,22 @@ def load_inventory(path):
     return data
 
 
-def compare(source, destination):
+def compare(source, destination, publication=False):
     differences = []
     for field in ("head", "status_porcelain_v1_nul"):
-        if source[field] != destination[field]:
+        if not publication and source[field] != destination[field]:
             differences.append({"field": field})
     for name in sorted(source["members"].keys() | destination["members"].keys()):
-        if source["members"].get(name) != destination["members"].get(name):
+        left, right = source["members"].get(name), destination["members"].get(name)
+        if publication:
+            # Git preserves executable intent, not host read/write permission bits.
+            # Compare content, type, size and executable intent for every member.
+            def git_member(member):
+                if member is not None and member.get("kind") == "file":
+                    return dict(member, mode="0o755" if int(member["mode"], 8) & 0o111 else "0o644")
+                return member
+            left, right = git_member(left), git_member(right)
+        if left != right:
             differences.append({"field": "member", "path": name})
     return differences
 
@@ -90,16 +99,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source")
     parser.add_argument("destination")
+    parser.add_argument("--publication", action="store_true",
+                        help="compare a dirty source to a committed Git snapshot; ignore HEAD/status and normalize Git modes")
     args = parser.parse_args()
     try:
         source = load_inventory(args.source)
         destination = load_inventory(args.destination)
-        differences = compare(source, destination)
+        differences = compare(source, destination, args.publication)
     except (OSError, ValueError, RecursionError) as error:
         # Do not echo malformed JSON, file contents or credential-shaped values.
         print("Invalid inventory: " + type(error).__name__, file=sys.stderr)
         return 2
     json.dump({"schema": 1, "source_matches": not differences,
+               "comparison": "git-publication" if args.publication else "checkout",
                "differences": differences,
                "scope": "source comparison only; qualification gates remain open"},
               sys.stdout, indent=2, sort_keys=True)

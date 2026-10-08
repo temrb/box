@@ -562,6 +562,11 @@ release gate.
   targets protected dedicated self-hosted amd64/arm64 runners. It clears production
   selectors, records attempted/not-reached gates and retains exact evidence.
   Actual workflow, runtime, dedicated-account and platform execution remain open.
+- [x] **O01 deletion defect fix:** reset and full removal re-inspect a surviving
+  volume immediately before deletion and compare its creation identity with the
+  protected checkpoint. Synthetic replacement/malformed-authority regressions
+  preserve the replacement and checkpoint. Actual Docker qualification and the
+  broader state-management task remain open.
 
 ### Phase 0 — Freeze evidence and qualify foundational behavior
 

@@ -1010,10 +1010,10 @@ box_ops_reset() (
     if [[ "$reset_stage" == home_removed ]]; then
       # Query the exact volume inventory: missing after a crash is completion;
       # daemon/query failure never authorizes proceeding.
-      local remaining_volumes
-      remaining_volumes=$("${docker_cmd[@]}" volume ls -q) || die 'Cannot inventory reset volume.'
-      if [[ "$remaining_volumes" == "$volume" || "$remaining_volumes" == *$'\n'"$volume" ||
-            "$remaining_volumes" == "$volume"$'\n'* || "$remaining_volumes" == *$'\n'"$volume"$'\n'* ]]; then
+      reset_volume_identity=$(box_ops_volume_identity "$volume" "${docker_cmd[@]}") || return 1
+      if [[ -n "$reset_volume_identity" ]]; then
+        python3 -I "$reset_helper" verify-volume --journal "$reset_journal" \
+          --volume-identity "$reset_volume_identity" || return 1
         "${docker_cmd[@]}" volume rm -- "$volume" || die 'Cannot remove project volume.'
       fi
       [[ "${BOX_STATE_RESET_FAULT:-}" != volume ]] || die 'Injected reset interruption after volume removal.'
@@ -1045,7 +1045,7 @@ box_ops_volume_identity() {
   names=$("$@" volume ls -q) || die 'Cannot query exact volume inventory.'
   if ! printf '%s\n' "$names" | grep -Fxq -- "$name"; then return 0; fi
   metadata=$("$@" volume inspect --format '{{json .}}' -- "$name") || die 'Cannot inspect exact volume identity.'
-  jq -ce --arg name "$name" 'select(.Name == $name and (.CreatedAt | type == "string") and (.Driver | type == "string")) | {Name,CreatedAt,Driver,Mountpoint,Scope}' <<<"$metadata" || die 'Invalid volume creation identity.'
+  jq -ce --arg name "$name" 'select(.Name == $name and (.CreatedAt | type == "string" and length > 0) and (.Driver | type == "string" and length > 0)) | {Name,CreatedAt,Driver,Mountpoint,Scope}' <<<"$metadata" || die 'Invalid volume creation identity.'
 }
 
 # Full removal includes recorded inactive native roots, project volumes,
@@ -1227,9 +1227,10 @@ FLUSH
     if [[ "$stage" == home_removed ]]; then
       volume=$(jq -r .volume -- "$checkpoint") || return 1
       if [[ -n "$volume" ]]; then
-        local existing
-        existing=$("${docker_cmd[@]}" volume ls -q) || die 'Cannot inventory full removal volumes.'
-        if printf '%s\n' "$existing" | grep -Fxq -- "$volume"; then
+        volume_identity=$(box_ops_volume_identity "$volume" "${docker_cmd[@]}") || return 1
+        if [[ -n "$volume_identity" ]]; then
+          python3 -I "$helper" verify-volume --journal "$checkpoint" \
+            --volume-identity "$volume_identity" || return 1
           "${docker_cmd[@]}" volume rm -- "$volume" || return 1
         fi
       fi

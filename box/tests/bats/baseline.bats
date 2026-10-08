@@ -158,3 +158,31 @@ assert output.getvalue() == ''
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "publication comparison permits only Git metadata and permission normalization" {
+  run python3 -I - "$BATS_TEST_DIRNAME/../../../specs/compare-baselines.py" <<'PY'
+import copy
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('comparison', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+source = {'head': 'a' * 40, 'status_porcelain_v1_nul': ' M box/a.py\0',
+          'members': {'box/a.py': {'kind': 'file', 'mode': '0o600', 'size': 1, 'sha256': 'b' * 64},
+                      'box/run.sh': {'kind': 'file', 'mode': '0o700', 'size': 1, 'sha256': 'c' * 64}}}
+destination = copy.deepcopy(source)
+destination.update(head='d' * 40, status_porcelain_v1_nul='')
+destination['members']['box/a.py']['mode'] = '0o644'
+destination['members']['box/run.sh']['mode'] = '0o755'
+assert module.compare(source, destination)
+assert not module.compare(source, destination, publication=True)
+for key, value in [('mode', '0o644'), ('size', 2), ('sha256', 'e' * 64), ('kind', 'missing')]:
+    changed = copy.deepcopy(destination)
+    changed['members']['box/run.sh'][key] = value
+    assert module.compare(source, changed, publication=True)
+changed = copy.deepcopy(destination)
+del changed['members']['box/a.py']
+assert module.compare(source, changed, publication=True)
+PY
+  [ "$status" -eq 0 ]
+}

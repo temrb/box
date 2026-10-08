@@ -1,5 +1,46 @@
 # Implementation progress — 2026-10-08
 
+## Removal continuation — final volume identity check
+
+Preserved the existing dirty implementation. Reset and full removal now
+re-inspect a surviving volume immediately before `volume rm`, then validate its
+creation identity against the protected transaction checkpoint through
+`state-transaction.py verify-volume`. A replacement, missing recorded authority,
+malformed identity or failed Engine query refuses deletion. An absent volume
+continues through the existing recovery path without a delete. Empty Engine
+creation timestamps/drivers refuse. Operator documentation describes the
+remaining Docker administrator race because the Engine deletes by name.
+
+Added integration regressions for a volume replaced between preparation and
+deletion in both public removal paths, and checkpoint-preservation checks for
+malformed, duplicate-key, missing and changed identity evidence. These are
+**U** observations using a synthetic Engine, not actual Docker qualification.
+
+The current host is Linux amd64, UID/GID 1000/1000, with no Docker CLI, runsc or
+local Engine socket. `make -C box build`, `verify-native` and
+`verify-native-opencode` were attempted and refused for missing Docker.
+`make -C box test-live` exited zero with all four cases skipped; this provides
+no passing **D** evidence. Five filesystem driver regressions and eight actual
+local synthetic locking/replacement observations pass, retaining Q06's explicit
+unqualified power-loss, VM, exhaustion, production-supervisor and Docker gates.
+
+The connected GitHub app reports the historical PR #3 snapshot
+`85ed4ee168d6e385bd022228e5faca9d5174c8fd` had a failed public static run
+`37747311284`. Fetching its detailed job log timed out. This historical result
+does not establish CI for the current local tree. No remote write, credential
+mutation, schema/contract cutover or release acceptance was performed.
+
+**S/U final code verification:** Sequential
+`PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH
+BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static` exited 0:
+**561 passed, 0 failed, 5 Docker-dependent skips** (566 cases). Syntax, Python,
+configuration, generated output, pins and ShellCheck pass. Log:
+`/tmp/box-static-2026-10-08-current.log`, SHA256
+`72937f8aafa4f3fba6011e8b1f8da92c73fe62bb9d10529381890ddf03ec99d7`.
+The final edit after this run only records these results in this progress log.
+All 34 complete-task acceptance checkboxes remain subject to their stated
+dependencies and evidence; the blueprint is not complete end to end.
+
 ## Policy, host filesystem and adapter continuation — 2026-10-08
 
 Preserved the existing dirty checkout and continued independent groundwork.
@@ -67,6 +108,24 @@ and added a passing regression. The final sequential static log is
 `/tmp/box-final-static.txt`; its exit/counts are reported in the final response. All broader blueprint tasks retain their complete
 acceptance gates. Docker/runsc, complete native manifests, dedicated accounts,
 VM/filesystem durability, ARM64, rollout and actual remote CI remain unqualified.
+
+### Actual CI and disposable VM continuation
+
+A separate draft PR #3 snapshots the implementation on top of `dev` / PR #2;
+the original local branch and dirty files remain in place. Its first public
+static run failed in exactly one Bats case because ripgrep was not installed.
+The CI/bootstrap package lists and qualification prerequisites now declare
+ripgrep. Public CI is being rerun on the subsequent snapshot.
+
+Added a trusted-ref `qualify-disposable` workflow for fresh GitHub-hosted Ubuntu
+amd64/ARM64 VMs, with the complete official signed gVisor package, private
+qualification homes, runtime/Engine/image provenance, and log-only artifacts.
+This enables actual account-independent Docker/runtime attempts through the
+connected GitHub app. The dedicated self-hosted workflow remains available
+for suitable protected hosts. No image is pushed/saved/exported and no reusable
+account secrets are supplied. Skipped required static/live cases fail the
+qualification driver. Account and VM-restart/power-loss gates stay separate.
+Results are pending; a scheduled job or image build is not qualification.
 
 ## Q06 continuation — exec descriptor inheritance
 

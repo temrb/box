@@ -14,7 +14,7 @@ Native ARM64 runtime support remains unaccepted until tested on that architectur
 Host tools: Bash, coreutils, findutils, util-linux (`flock`), jq, curl, and Python 3.11+ for TOML
 and project hardlink inspection. Git is optional but recommended (repository-root discovery, identity
 inference); without it, launch from the project root or pass `--project-root`.
-All launchers inspect project inode links with isolated Python before mounting. Static verification also requires ShellCheck and Bats.
+All launchers inspect project inode links with isolated Python before mounting. Static verification also requires ShellCheck, Bats and ripgrep.
 On Debian install validation packages with the package manager; verify Python
 with `python3 -c 'import tomllib'`. The root GitHub workflow installs these tools
 and invokes the same Make gates.
@@ -341,6 +341,11 @@ unsafe locks refuse before auth locks are created or Docker removal starts.
 The complete reset checkpoint additionally records native-home members and the
 Engine creation identity of its exact volume. Full-removal checkpoints record
 the fixed inventory and explicit provider/code choices before deletion.
+Both operations re-inspect a surviving volume immediately before deletion and
+compare its creation identity with the protected checkpoint. Missing or changed
+identity evidence refuses deletion and retains the checkpoint. Docker removes
+volumes by name, so this check does not protect against a Docker administrator
+replacing the volume between inspection and removal.
 
 Project reset now checkpoints the native home, exact volume creation identity,
 and auth-retention choice under `state-index/resets/`. Launchers refuse reuse
@@ -492,3 +497,17 @@ drivers retain responsibility for their exact Docker cleanup; review reported
 failures before retiring the run tree. Local images remain local and are never
 uploaded as CI artifacts. Dedicated-account, VM/power-loss and staged rollout
 qualification still require their separate drivers and evidence.
+
+
+The `qualify-disposable` workflow additionally runs account-independent gates on
+fresh GitHub-hosted amd64 and ARM64 VMs. Its push trigger is limited to the
+qualification branch; manual runs are restricted to the default branch. It
+installs the complete signed gVisor APT package using the
+[official installation procedure](https://gvisor.dev/docs/user_guide/install/),
+records the observed runtime/Engine/platform and immutable image IDs, and
+uploads only gate logs/provenance. Images, native stores and credentials are
+excluded from artifacts. Skipped required static/live cases fail the gate.
+GitHub's [runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+describes the separate VMs and architectures. Account and restart/durability
+gates still require their own qualified environment; a successful host build
+cannot close them.
