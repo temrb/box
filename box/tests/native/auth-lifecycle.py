@@ -226,9 +226,11 @@ def main():
                                 assert other.returncode != 0 and 'busy' in other.stderr.lower()
                                 assert time.monotonic() - start < 10
                             finally:
+                                phase = 'busy-signal-collection'
                                 busy.terminate()
                                 busy.communicate(timeout=30)
                                 ready.unlink(missing_ok=True)
+                            assert json.loads((first / 'lease.json').read_text())['state'] == 'idle', 'signal collection requires recovery'
                             phase = 'startup-refusal'
                             # Startup refusal collects/scrubs any reserved projection
                             # and leaves canonical state usable on the next run.

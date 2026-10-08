@@ -45,3 +45,47 @@ finally:
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "OpenCode EXIT collection survives repeated TERM during durable collection" {
+  run python3 -I - "$BUNDLE_DIR/harnesses/opencode/entrypoint.sh" <<'PY'
+import os, pathlib, signal, subprocess, sys, tempfile, time
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index('  box_auth_collect() {')
+end = source.index('\n  trap box_auth_collect EXIT', start)
+function = source[start:end]
+for protected in (False, True):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        tested = function if protected else function.replace("    trap '' INT TERM HUP\n", '')
+        code = '''set -eu
+FIXTURE_ROOT=$1
+BOX_NATIVE_GROUP=''; BOX_AUTH_HELPER=fixture; BOX_DB=fixture; BOX_SIDECAR=fixture; BOX_AUTH_ID=fixture; BOX_AUTH_DIR=fixture; BOX_ADAPTER=fixture
+python3() { return 0; }
+box_supervisor_collect() { touch "$FIXTURE_ROOT/ready"; sleep .4; touch "$FIXTURE_ROOT/collected"; }
+''' + tested + '''
+trap box_auth_collect EXIT
+trap 'exit 143' TERM
+touch "$1/started"
+while :; do sleep .05; done
+'''
+        child = subprocess.Popen(['bash', '-p', '-c', code, 'fixture', str(root)],
+                                 env={'PATH':'/usr/bin:/bin'}, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic()+5
+            while not (root/'started').exists() and child.poll() is None and time.monotonic()<deadline:
+                time.sleep(.01)
+            assert (root/'started').exists()
+            child.send_signal(signal.SIGTERM)
+            while not (root/'ready').exists() and child.poll() is None and time.monotonic()<deadline:
+                time.sleep(.01)
+            assert (root/'ready').exists()
+            child.send_signal(signal.SIGTERM)
+            assert child.wait(timeout=5)==143
+            assert (root/'collected').exists()==protected
+        finally:
+            if child.poll() is None: child.kill()
+            child.wait(timeout=5)
+PY
+  [ "$status" -eq 0 ]
+}

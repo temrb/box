@@ -26,14 +26,18 @@ def field(tool, name):
                 'observation', str(BUNDLE), tool, name]).stdout.strip()
 
 
+def prepare_cli(home):
+    cli = Path(home) / '.config/box-network-observations/docker-cli'
+    run(['bash', '-p', '-c', 'source "$1/lib/preflight.sh"; source "$1/lib/docker.sh"; box_docker_cli "$2"',
+         'observation', str(BUNDLE), str(cli)])
+    return ['docker', '--config', str(cli), '--host', 'unix:///var/run/docker.sock']
+
+
 def main():
     uid, gid = os.getuid(), os.getgid()
     if not uid or not gid:
         raise ValueError('normal qualification user required')
-    cli = Path(os.environ['HOME']) / '.config/box-network-observations/docker-cli'
-    run(['bash', '-p', '-c', 'source "$1/lib/docker.sh"; box_docker_cli "$2"',
-         'observation', str(BUNDLE), str(cli)])
-    docker = ['docker', '--config', str(cli), '--host', 'unix:///var/run/docker.sock']
+    docker = prepare_cli(os.environ['HOME'])
     # Record resolver configuration as metadata, never query credential stores.
     for command in (['cat', '/etc/resolv.conf'], ['resolvectl', 'dns']):
         try:

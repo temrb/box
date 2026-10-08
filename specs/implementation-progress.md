@@ -110,6 +110,38 @@ not available. Those specific A/P gates cannot be established in this session;
 GitHub-hosted runtime/platform qualification is available and remains active.
 No broader native/architecture/release task is marked complete.
 
+### Hosted lifecycle observations and signal collection repair
+
+**D/N/CI:** The amd64 artifact from run `37811762905`, snapshot
+`c5f2bf55525503341033c99688dd385f009d5434`, was downloaded and verified:
+artifact `11567037890`, ZIP SHA256
+`0cd8430837f463c0bc9bbd80d1447f81caba4c666378fd303d2f6236c89fa6f1`.
+All eight installed Muse/Codex synthetic lifecycle cases actually pass across
+both scopes and both runtimes, including restart, transitions, alias/move,
+concurrency, wrapper signals, interruption recovery, reset and removal.
+Native accounts and complete member manifests are not accepted by those cases.
+The source/static/install/Make-build/image/live gates pass. Neutral containment
+now passes for each harness/runtime; generated native readiness still refuses
+runsc DNS and empty account stores. OpenCode stops after busy cancellation,
+with an active recovery-required lease; the following startup-refusal phase
+exposes that earlier interruption rather than an image-validation defect.
+
+The neutral network driver failed before observation because its Docker CLI
+bootstrap omitted `preflight.sh`; it now sources both prerequisites. An actual
+isolated CLI-initialization regression passes with a presence-only Engine
+fixture. No production selector or credential is inherited.
+
+A real subprocess regression reproduces OpenCode EXIT collection being aborted
+by a second TERM, and proves that ignoring repeated INT/TERM/HUP while collecting
+allows completion while retaining exit 143. Docker CLI signal proxying followed
+by the host stop can supply those two signals. The entrypoint now protects its
+EXIT transaction; the host gives bounded stop/collection grace (15 seconds,
+20-second command timeout). Deadline failure still preserves recovery rather
+than manufacturing logout. A missing-image regression proves an untouched
+reservation becomes idle. The native driver now checks cancellation's idle
+lease immediately, so a signal failure is attributed to that phase.
+These **U** repairs still need the next exact-source Docker observations.
+
 ## Baseline gate completion and filesystem observations — 2026-10-08
 
 **Q01 is complete for its stated source-baseline/qualification-harness criteria.**

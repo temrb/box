@@ -334,7 +334,9 @@ box_interrupt_client() {
   local signal=$1 status=$2 client_pid=$3
   trap '' INT TERM HUP
   kill -s "$signal" "$client_pid" 2>/dev/null || true
-  if ! timeout --kill-after=2 10 "${docker_cmd[@]}" stop --time 5 "$container" >/dev/null 2>&1; then
+  # Allow bounded native-service shutdown and durable collection after the
+  # first signal. Five seconds could kill OpenCode during its EXIT transaction.
+  if ! timeout --kill-after=2 20 "${docker_cmd[@]}" stop --time 15 "$container" >/dev/null 2>&1; then
     printf '%s: WARNING: could not stop container %s; check Docker cleanup.\n' "$BOX_TOOL" "$container" >&2
   fi
   box_terminate_client "$client_pid"

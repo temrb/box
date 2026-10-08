@@ -124,6 +124,11 @@ PY
   # shellcheck disable=SC2317,SC2329 # Invoked indirectly by the EXIT trap.
   box_auth_collect() {
     local rc=$?
+    # Docker's attached CLI can proxy TERM before the host's explicit stop
+    # sends it again. A second signal must not abort EXIT collection between
+    # native quiescence and durable publication. Stop's bounded KILL remains
+    # an interruption requiring recovery if collection cannot finish.
+    trap '' INT TERM HUP
     # Reap background service before collection; never edit concurrently.
     local -a stop_args=(--native-exe /usr/local/bin/opencode)
     local group=${BOX_NATIVE_GROUP:-${!:-}}

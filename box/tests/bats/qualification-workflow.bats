@@ -35,3 +35,31 @@ assert 'cancel-in-progress: false' in text
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "neutral network driver prepares isolated CLI with its required filesystem helpers" {
+  run python3 -I - "$BUNDLE_DIR/tests/native/network-observations.py" <<'PY'
+import importlib.util, json, os, pathlib, sys, tempfile
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location('network', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original = module.run
+def presence_fixture(argv, **kwargs):
+    assert argv[:3] == ['bash','-p','-c']
+    argv = list(argv)
+    argv[3] = 'PATH="$3:$PATH"; ' + argv[3]
+    argv.append(str(stubbin))
+    return original(argv, **kwargs)
+with tempfile.TemporaryDirectory() as tmp:
+    home=pathlib.Path(tmp)
+    stubbin=home/'bin';stubbin.mkdir(mode=0o700)
+    (stubbin/'docker').write_text('#!/bin/sh\nexit 125\n');(stubbin/'docker').chmod(0o700)
+    with patch.dict(os.environ, {'HOME':str(home)}, clear=True), patch.object(module,'run',presence_fixture):
+        command=module.prepare_cli(home)
+    config=home/'.config/box-network-observations/docker-cli/config.json'
+    assert json.loads(config.read_text())=={}
+    assert config.stat().st_mode & 0o777 == 0o600
+    assert command==['docker','--config',str(config.parent),'--host','unix:///var/run/docker.sock']
+PY
+  [ "$status" -eq 0 ]
+}
