@@ -29,7 +29,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     concurrency:
-      group: box-disposable-${{ github.ref }}-${{ matrix.platform }}
+      # Separate disposable VMs have no shared Engine or native state. Keep
+      # each exact snapshot independent of slower historical qualifications.
+      group: box-disposable-${{ github.ref }}-${{ matrix.platform }}-${{ github.sha }}
       cancel-in-progress: false
     env:
       BOX_QUALIFICATION_PLATFORM: ${{ matrix.platform }}

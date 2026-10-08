@@ -13,6 +13,13 @@ Public raw SQLite snapshot migration/recovery now refuses, preserving sources
 and old recovery journals; the default contained native volume path remains.
 Contained snapshot recovery is unfinished and is not replaced by host parsing.
 
+**S/U:** Exact fetched snapshot `ad9126ac…` passes 574 Bats cases with zero
+failures and five Docker skips, plus syntax, Python, configuration, generated,
+pin and ShellCheck gates. Source inventories match before/after the run.
+Dedicated accounts and restart-controlled hosts are unavailable; those A/P
+acceptance gates remain open. Hosted Docker/ARM64 qualification is available
+and runs independently for each exact source snapshot.
+
 ## Earlier baseline, hosted Docker and ext4 observations (2026-10-08)
 
 Q01's source-baseline/qualification-harness criteria are complete. The

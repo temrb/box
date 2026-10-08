@@ -86,6 +86,30 @@ complete native manifests remain necessary. Current contract-3 launchers still
 mount canonical state; source-preserving migration, contract-4 supervision,
 immutable installation generations and release acceptance remain unfinished.
 
+### Exact code verification and qualification scheduling
+
+**S/U:** Exact source snapshot `ad9126acc768eb808a3077f4920a0acdb917eaeb`
+was fetched into `/tmp/box-final-qualified-source`; publication comparison with
+the dirty inventory passes. Sequential `verify-static` there exits 0:
+**574 passed, zero failures, five Docker-dependent skips** (579 cases).
+Syntax, Python, configuration, generated output, pins and ShellCheck pass.
+Log `/tmp/box-exact-snapshot-static.log`, SHA256
+`7ab649af76002a4422ba1cdf0c245968656f9b122a810fb858f6cabba5ded1a1`.
+The fetched checkout's before/after strict source inventories match.
+The full run that overlapped raw-path edits is explicitly superseded by this
+stable fetched-snapshot run. A local setup attempt still refuses absent Docker
+before installation; it is not installed runtime acceptance.
+
+The hosted disposable concurrency key now includes the immutable source SHA,
+so independent fresh-VM snapshots need not wait behind historical branch runs.
+Self-hosted dedicated runners remain serialized. Eight focused workflow and
+baseline regressions pass; the scheduling-only workflow change follows the
+exact code verification above. Account and durability gates remain separate.
+The user confirms that dedicated test accounts and restart-controlled hosts are
+not available. Those specific A/P gates cannot be established in this session;
+GitHub-hosted runtime/platform qualification is available and remains active.
+No broader native/architecture/release task is marked complete.
+
 ## Baseline gate completion and filesystem observations — 2026-10-08
 
 **Q01 is complete for its stated source-baseline/qualification-harness criteria.**
