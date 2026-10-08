@@ -1,5 +1,21 @@
 # Architecture audit acceptance
 
+## Current continuation: authority primitive and hosted runners (2026-10-08)
+
+The [progress record](../../specs/implementation-progress.md) documents the
+additive host-only schema-2 store and 13 synthetic **U** authority tests,
+including actual process contention and SIGKILL at seven durable boundaries.
+Production remains schema 1 / contract 3; native-manifest qualification and
+host-only lifecycle cutover remain open. No broad task is completed.
+
+The exact preserved qualification snapshot is
+`0c6788728f927ed02717b656f0ed6182b6fb6f40` on draft PR #3. Both hosted
+amd64/ARM64 jobs in [run 37803020849](https://github.com/temrb/box/actions/runs/37803020849)
+passed the source inventory comparison and prerequisite installation and are
+running Make-based qualification. Running workflows are not acceptance.
+The new local auth-store files were added after that snapshot and are not
+covered by its runtime observations. Account and power-loss gates remain open.
+
 ## Q01 transfer comparison groundwork (2026-10-08)
 
 **U:** The read-only `specs/compare-baselines.py` checker validates inventory

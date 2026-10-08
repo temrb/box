@@ -38,6 +38,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify published source against the dirty implementation inventory
+        id: source
         run: |
           mkdir -m 700 "$RUNNER_TEMP/box-evidence"
           python3 -I specs/capture-baseline.py > "$RUNNER_TEMP/box-evidence/source-baseline.json"
@@ -45,6 +46,7 @@ jobs:
             .qualification/source-baseline.json "$RUNNER_TEMP/box-evidence/source-baseline.json" \
             > "$RUNNER_TEMP/box-evidence/source-comparison.json"
       - name: Install qualification tools and the complete signed gVisor package
+        id: prerequisites
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q shellcheck bats ripgrep jq python3 curl gnupg
@@ -69,6 +71,14 @@ jobs:
           } > "$RUNNER_TEMP/box-evidence/host.txt"
       - name: Execute disposable build, runtime and native gates
         run: bash -p box/tests/native/ci-qualification.sh
+      - name: Qualify real bounded ext4 block and inode exhaustion
+        if: >-
+          always() && steps.source.outcome == 'success' &&
+          steps.prerequisites.outcome == 'success'
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/box-filesystem"
+          bash -p box/tests/native/qualify-ext4.sh "$RUNNER_TEMP/box-filesystem" \
+            > "$RUNNER_TEMP/box-evidence/filesystem.log" 2>&1
       - name: Collect only qualification logs and provenance
         if: always()
         run: |

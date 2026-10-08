@@ -1,5 +1,73 @@
 # Implementation progress — 2026-10-08
 
+## Host-only authority and hosted qualification continuation — 2026-10-08
+
+Preserved the dirty checkout; initial Git status and source capture are at
+`/tmp/box-start-status.txt` and `/tmp/box-start-baseline.json`. The initial
+source manifest is `6b2237f846d7c0b580cd3e4952298a092833268c2f1e8f716b7eb22809c49bdf`.
+Local Engine/runsc remain absent; the process has no effective capabilities,
+no sudo, and no Engine socket. The connected GitHub app is usable.
+
+Published the preserved source through Git objects to the existing draft PR #3
+branch, without changing the local branch/index or importing remote code.
+Snapshot `0c6788728f927ed02717b656f0ed6182b6fb6f40` includes the preceding
+volume identity fix and explicit publication comparison. An idle recheck of
+its source baseline compared equal. Both disposable hosted runners passed
+source comparison and prerequisite installation; run
+[37803020849](https://github.com/temrb/box/actions/runs/37803020849) is executing
+amd64/ARM64 Make build/runtime/native gates. Static runs are
+[37803027075](https://github.com/temrb/box/actions/runs/37803027075) and
+[37803020791](https://github.com/temrb/box/actions/runs/37803020791).
+Scheduled/running steps do not establish D/N/CI acceptance.
+
+`compare-baselines.py --publication` compares complete source membership,
+content digests, types, sizes and executable intent. It explicitly permits
+Git's HEAD/status and read/write mode normalization. Its default retains strict
+checkout comparison. The workflow compares the captured dirty inventory before
+qualification; the inventory is outside the source scope under `.qualification/`.
+Eight baseline/workflow regressions pass (**U**). Historical CI log retrieval
+now succeeds: job `113211751561` failed because the inventory test invoked
+unavailable `rg`. The current workflow already installs ripgrep.
+
+Added `box/lib/auth-store.py` as an additive host-only schema-2 primitive.
+It uses `host-fs.py` for private bounded reads, stable nonblocking external
+locks and fsynced publication. Trusted host code supplies semantic validators
+and a content-addressed manifest identifier; native data cannot supply paths,
+revision numbers, transaction IDs, stages or manifests. All members require
+explicit presence/absence; tombstones agree with whole-identity absence.
+Corrupt/unknown canonical state is preserved. Revisions never reset implicitly.
+
+Reservation, validated pending export, canonical publication, verified-scrub
+acknowledgement and completion are distinct durable phases. Pending evidence
+is retained, and recovery refuses a changed base/export. A crash after canonical
+publication can reconcile the same transaction without a second revision.
+Locks remain outside the canonical identity, close on exec, and inherited
+fork callers cannot exercise a parent's lease authority. Journals contain
+only revision/digest/transaction metadata, never credential payloads.
+
+**U:** Thirteen synthetic authority tests pass, including independent-process
+contention and actual SIGKILL after seven durable file/journal boundaries,
+fsync failure, missing/corrupt pending exports, source preservation, hostile
+members, replaced authority paths/locks and fork inheritance. These tests do
+not establish VM restart/power-loss, filesystem exhaustion, real token rotation,
+native service quiescence or production-supervisor recovery.
+
+Added a hosted-VM-only real ext4 exhaustion driver with two bounded 32 MiB
+loop filesystems. It verifies actual ENOSPC and the corresponding free-block
+or free-inode exhaustion, preserves the canonical revision/reservation, frees
+only exact fixture members, and retries the same transaction. Mount cleanup
+checks the recorded mount ID. The workflow runs it only after source comparison
+and prerequisite success, even when another qualification gate fails. Shell
+syntax, ShellCheck and Python compilation pass locally (**S**); actual execution
+is pending hosted observation, with no P pass claimed yet.
+
+This primitive is deliberately not wired to contract-3 launchers. No complete
+native manifests have been qualified; no schema-2/contract-4 cutover or schema-1
+conversion is activated. Current launchers still expose canonical state.
+C05/L01/L02 and all broad acceptance tasks remain open. Dedicated account access
+and restart-controlled filesystem hosts remain required for A/P gates; hosted
+CI cannot substitute for those gates.
+
 ## Removal continuation — final volume identity check
 
 Preserved the existing dirty implementation. Reset and full removal now
