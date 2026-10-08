@@ -1,20 +1,37 @@
 # Architecture audit acceptance
 
-## Current continuation: authority primitive and hosted runners (2026-10-08)
+## Current continuation: baseline, hosted Docker and ext4 (2026-10-08)
 
-The [progress record](../../specs/implementation-progress.md) documents the
-additive host-only schema-2 store and 13 synthetic **U** authority tests,
-including actual process contention and SIGKILL at seven durable boundaries.
-Production remains schema 1 / contract 3; native-manifest qualification and
-host-only lifecycle cutover remain open. No broad task is completed.
+Q01's source-baseline/qualification-harness criteria are complete. The
+[progress record](../../specs/implementation-progress.md) contains exact
+snapshots, source comparisons, artifact digests and measured outcomes.
+The other 33 broad tasks remain open; production is schema 1 / contract 3
+and still exposes canonical state. The additive host-only store has 14
+synthetic authority regressions and is not activated.
 
-The exact preserved qualification snapshot is
-`0c6788728f927ed02717b656f0ed6182b6fb6f40` on draft PR #3. Both hosted
-amd64/ARM64 jobs in [run 37803020849](https://github.com/temrb/box/actions/runs/37803020849)
-passed the source inventory comparison and prerequisite installation and are
-running Make-based qualification. Running workflows are not acceptance.
-The new local auth-store files were added after that snapshot and are not
-covered by its runtime observations. Account and power-loss gates remain open.
+**CI/S/U:** Both static runs for snapshots `0c678872…` and `146bbca6…`
+passed. Local static verification after the MCP/privacy/registration changes
+passed 564 cases with zero failures and five Docker-dependent skips.
+The later initialization-preservation guard has focused passing checks;
+final exact-snapshot verification remains required.
+
+**D/CI:** [Run 37803020849](https://github.com/temrb/box/actions/runs/37803020849)
+built all three local images through Make and passed all four live Docker
+cases on amd64 and ARM64. Native acceptance refused missing Docker runsc
+registration. The workflow now registers runsc and verifies it before building.
+
+**P/CI:** [Run 37804119119](https://github.com/temrb/box/actions/runs/37804119119)
+passed real ext4 block/inode ENOSPC on both architectures: canonical and journal
+survive, and the same transaction retries to revision 1. This is bounded local
+filesystem evidence, not power-loss or production-supervisor recovery.
+
+**N:** Fresh pinned amd64 Codex passes synthetic MCP file-store loading,
+server/endpoint-specific logout, mode repair, empty-map handling, last-member
+unlink and malformed-store preservation. Provider auth/history remain intact.
+Real OAuth/callback/rotation/concurrency and alternate-store gates remain open.
+
+No complete native manifests, schema-2/contract-4 lifecycle cutover, dedicated
+account acceptance, staged rollout or release acceptance are claimed.
 
 ## Q01 transfer comparison groundwork (2026-10-08)
 

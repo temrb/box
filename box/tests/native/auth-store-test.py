@@ -81,6 +81,22 @@ class HostAuthority(unittest.TestCase):
         with self.authority.leased():
             self.assertEqual(identity, (self.lock.stat().st_dev, self.lock.stat().st_ino))
 
+    def test_legacy_or_unacknowledged_members_refuse_without_shadowing(self):
+        for name in ('credentials.json', 'identity.json', '.box-control-' + 'a' * 32):
+            with self.subTest(name=name):
+                identity = self.root / ('legacy-' + name)
+                identity.mkdir(mode=0o700)
+                member = identity / name
+                member.write_bytes(b'synthetic-displaced-authority')
+                member.chmod(0o600)
+                authority = store.Store(str(identity), str(self.root / (name + '.lock')), contract())
+                with authority.leased():
+                    for operation in (authority.initialize, authority.read, lambda: authority.begin(0)):
+                        with self.assertRaises(ValueError):
+                            operation()
+                self.assertEqual(member.read_bytes(), b'synthetic-displaced-authority')
+                self.assertFalse((identity / 'canonical.json').exists())
+
     def test_unknown_schema_authority_and_invalid_revisions_preserve_source(self):
         initial = json.loads((self.identity / 'canonical.json').read_text())
         mutants = [dict(initial, schema=1), dict(initial, schema=True), dict(initial, revision=True),

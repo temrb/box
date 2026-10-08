@@ -1,5 +1,46 @@
 # Implementation progress — 2026-10-08
 
+## Baseline gate completion and filesystem observations — 2026-10-08
+
+**Q01 is complete for its stated source-baseline/qualification-harness criteria.**
+Initial status and source hashes are retained; repeated strict idle captures
+match; actual fetched Git blobs and both hosted runners verify publication;
+static checks reproduce; Docker/runsc tools and exact artifact/host identities
+are observed on disposable amd64 and ARM64 VMs. Every unmet higher-category
+native/account/power-loss/architecture/release gate remains explicit. This
+completes only the baseline task, not the host-only architecture or release.
+The remaining 33 broad task checkboxes stay open.
+
+Both architectures in initial run `37803020849` built all three images through
+Make and passed all four live Docker cases; both native gates correctly refused
+unregistered runsc. Verified amd64 artifact `11562881557` ZIP SHA256:
+`bbb07a9cbd8b2566530dafc3b2ef7dface855425c5ba980519f516ce150236fd`.
+
+**P/CI:** Run `37804119119`, snapshot
+`146bbca636613b6db16e7e9e97d11fbce7ddffbb`, passed real bounded ext4 block and
+inode exhaustion on both architectures. ENOSPC preserved canonical revision 0
+and the reserved journal; after exact filler removal, the same transaction
+committed revision 1. Artifacts were downloaded and their ZIP digests verified:
+
+- amd64 `11563167730`: `93c0af4166c1117b45ab205e1e67294b208c165bb3890e0cb7ffa106ba1244d7`.
+- arm64 `11562788492`: `1be4cbe41f332cc7e824fc24ef7c1861700b11ffe88eb877a16eddfa21eabe3a`.
+
+Both static CI runs for that snapshot passed. Its native gates still fail for
+unregistered runsc. Registration is fixed in the subsequent snapshot
+`d7940f7ffabb55d6cee5bdfe7bff1b10d75fc963`, qualification run `37805630389`.
+These filesystem passes do not establish power-loss, VM restart, production
+supervisor recovery, daemon failure or a general filesystem support policy.
+
+**S/U:** Full local static verification after MCP/privacy/registration changes
+passed: 564 cases passed, zero failures, five Docker skips (569 cases).
+Log `/tmp/box-static-final-continuation.log`, SHA256
+`de0c76deeebbf3233cab55b84994ffc362ad3ec346a0677f5417eb5a05fc85dc`.
+Subsequent authority review tightened initialization: unknown/legacy authority
+members and unacknowledged staging files refuse without shadowing or deleting
+source. All 14 internal authority tests and 14 focused Bats cases pass; Python
+compilation and whitespace checks pass. This last guard needs the final exact
+snapshot verification. It does not activate any production schema conversion.
+
 ## Native MCP mechanics and first hosted results — 2026-10-08
 
 Fresh pinned amd64 Codex package SHA256

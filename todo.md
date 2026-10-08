@@ -570,7 +570,7 @@ release gate.
 
 ### Phase 0 — Freeze evidence and qualify foundational behavior
 
-- [ ] **Q01 — Capture the implementation baseline and qualification harness**
+- [x] **Q01 — Capture the implementation baseline and qualification harness**
 
   **Objective/reason:** Establish a reproducible starting snapshot without replacing the existing uncommitted work.
 
@@ -581,6 +581,8 @@ release gate.
   **Dependencies:** None.
 
   **Acceptance/verification:** A subsequent implementer can identify source drift before editing; baseline safe checks reproduce. Every unexecuted category remains explicitly unqualified.
+
+  **Completion evidence (2026-10-08):** Initial HEAD/status and source hashes were captured without replacing the dirty checkout. Strict idle captures matched; committed publication was verified from actual fetched Git blobs and by both hosted runners before qualification. Local static checks reproduce, both architectures built through Make and passed all four live Docker cases, and host/artifact/gate records are retained with digests. The qualification driver uses disposable homes/projects and explicit resource coordinates. Every unavailable native/account/power-loss/release gate remains open. See `specs/implementation-progress.md`; Q01 completion does not accept schema 2 / contract 4 or any downstream task.
 
   **Compatibility/rollback:** Preserve all existing changes and historical evidence. Qualification creates no production state.
 

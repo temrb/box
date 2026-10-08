@@ -150,6 +150,11 @@ class Store:
             raise ValueError('inherited host lease is not transaction authority')
         if private_directory(self.identity) != identity:
             raise ValueError('canonical authority directory was replaced')
+        with fs.open_directory(self.identity) as directory:
+            # A schema-1 object or an interrupted unacknowledged staging file
+            # requires explicit preservation/recovery, never fresh auth.
+            if set(os.listdir(directory)) - {'canonical.json', 'journal.json', 'pending.json'}:
+                raise ValueError('unrecognized canonical directory member requires explicit recovery')
         with fs.open_directory(self.lock.parent) as parent:
             parent_info = os.fstat(parent)
             if parent_info.st_uid != os.getuid() or stat.S_IMODE(parent_info.st_mode) != 0o700:
@@ -176,11 +181,9 @@ class Store:
     def initialize(self):
         self._authority()
         # Missing is legal only for explicit initialization, never collection.
-        for name in ('canonical.json', 'journal.json', 'pending.json'):
-            try:
-                os.lstat(self.identity / name)
-            except FileNotFoundError:
-                continue
+        with fs.open_directory(self.identity) as directory:
+            occupied = bool(os.listdir(directory))
+        if occupied:
             raise ValueError('initialization refuses existing authority')
         envelope = self.contract.envelope(0, None, {n: {'present': False} for n in self.contract.validators})
         self._write('canonical.json', envelope)
