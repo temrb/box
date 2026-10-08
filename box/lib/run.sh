@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # box/lib/run.sh — shared `docker run` base for all launchers.
 # Launchers keep only tool-specific deltas (persist-dir bind vs tmpfs,
-# credential forwarding set, login auto-runtime). Requires lib/preflight.sh
+# credential forwarding set, login health checks). Requires lib/preflight.sh
 # (die, BOX_TOOL); never executed directly.
 # shellcheck disable=SC2034,SC2154 # caller-owned globals (args, runtime_args,
 # host_uid/host_gid, identity_name/identity_email, ...) cross files.
@@ -248,22 +248,19 @@ box_usage_common_flags() {
   cat <<'EOF'
 Run from any project subdirectory. --project-root PATH selects a non-Git root. --dry-run prints arguments without contacting Docker.
 --docker-fallback explicitly chooses hardened runc; --runsc explicitly chooses
-gVisor (no probe). With neither flag, tool runs probe container DNS under
-runsc first and auto-select hardened runc only when the probe fails (NOTICE
-plus fallback WARNING; fail-closed under *_ALLOW_FALLBACK=0). --shell runs
-never probe: they stay on the explicit runtime. Launcher flags (--dry-run,
---docker-fallback, --runsc) must precede --shell; flags after --shell are
-passed to the shell and a launcher flag there is an error.
+gVisor (no DNS probe). Default tool runs use runsc and refuse to start when
+their DNS/startup probe fails. --shell runs skip the probe. Launcher flags
+(--dry-run, --docker-fallback, --runsc) must precede --shell; flags after
+--shell are passed to the shell and a launcher flag there is an error.
 EOF
 }
 
-# Shared launch tail: auto-runtime → args → base → mounts → signals → keys →
+# Shared launch tail: runtime health → args → base → mounts → signals → keys →
 # tail callback → exec. Adapters build data (a mounts array, a forward-names
 # string, run context) and pass a tail callback for entrypoint/image
 # assembly; template-method, no tool-name branches. The callback receives the
 # tool args as its own "$@" (everything after the six params is forwarded).
-# The probe runs container DNS under runsc first and auto-selects the
-# hardened-runc fallback with NOTICE plus fallback WARNING (never silent);
+# The probe checks container DNS under runsc and refuses on failure;
 # it skips under --dry-run, explicit runtime flags, and --shell runs, and
 # fails closed under *_ALLOW_FALLBACK=0. Dry-run exits inside
 # box_docker_exec (no early return here).
@@ -278,6 +275,13 @@ box_launch_epilogue() {
   shift 6
   local gpfx img_var image_override
   gpfx=$(box_tool_field "$id" git_prefix)
+  # Native informational/logout commands do not require online DNS health.
+  # This only skips the health probe; Engine/runtime/image gates still apply.
+  local network_required=1
+  case "${1:-}" in
+    --help|--version|help|version|logout|status) network_required=0 ;;
+    login) [[ "${2:-}" != status ]] || network_required=0 ;;
+  esac
   # shellcheck disable=SC2046 # word-splitting registry probe_hosts into host args is intentional.
   box_maybe_auto_runtime "$image" "$tool_network" "${gpfx}_ALLOW_FALLBACK" "$context" $(box_tool_field "$id" probe_hosts)
   # shellcheck disable=SC2054 # elements are space-separated; commas live inside quoted --tmpfs values.
@@ -298,5 +302,9 @@ box_launch_epilogue() {
   image_override=0
   img_var="${gpfx}_IMAGE"
   [[ -n "${!img_var:-}" ]] && image_override=1
+  if (( ! dry_run )); then
+    box_state_guard_reset "$id" "$host_uid" "$host_gid" "$project_hash"
+    box_state_record_native "$id"
+  fi
   box_docker_exec "$id" "$tool_network" "$image_override"
 }

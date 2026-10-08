@@ -114,30 +114,11 @@ timeout() { [[ "$1" != --kill-after=* ]] || shift; shift; "$@"; }
   [ "$fallback_requested" -eq 0 ]
 }
 
-@test "auto-runtime switches to runc with NOTICE plus WARNING on DNS failure" {
-  _stub_docker 1
-  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"NOTICE: container DNS unreachable under runsc"* ]]
-  [[ "$output" == *"for this run."* ]]
-  [[ "$output" == *"explicit hardened-runc fallback"* ]]
-}
 
-@test "auto-runtime keeps the login context by default" {
-  _stub_docker 1
-  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK '' host.example.com
-  [ "$status" -eq 0 ]
-  [[ "$output" == *'for `login`.'* ]]
-}
 
-@test "auto-runtime fails closed under the kill-switch" {
-  _stub_docker 1
-  TEST_BOX_ALLOW_FALLBACK=0
-  export TEST_BOX_ALLOW_FALLBACK
-  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"fallback disabled via TEST_BOX_ALLOW_FALLBACK=0"* ]]
-}
+
+
+
 
 @test "auto-runtime honors explicit --runsc without probing" {
   _stub_docker 1
@@ -166,17 +147,7 @@ timeout() { [[ "$1" != --kill-after=* ]] || shift; shift; "$@"; }
   done
 }
 
-@test "maybe-gate delegates to auto-select on a live non-explicit run" {
-  _stub_docker 1
-  dry_run=0; fallback_requested=0; shell_mode=0; explicit_runsc=0
-  runtime_args=(--runtime=runsc)
-  box_maybe_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com >"$TEST_TMP/out.txt" 2>&1
-  [ "$?" -eq 0 ]
-  [ "$fallback_requested" -eq 1 ]
-  [ "${runtime_args[*]}" = "--runtime=runc" ]
-  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"auto-selecting hardened-runc fallback for this run."* ]]
-  [[ "$(cat -- "$STUB_C_FILE")" == *"getent hosts host.example.com"* ]]
-}
+
 
 @test "probe fails closed with remediation when the daemon is unavailable" {
   stub_fail_info() { case "${1:-}" in info) return 1 ;; *) return 0 ;; esac; }
@@ -231,39 +202,11 @@ timeout() { [[ "$1" != --kill-after=* ]] || shift; shift; "$@"; }
   [ "$status" -eq 2 ]
 }
 
-@test "auto-runtime on rc=2 prints the byte-identical DNS NOTICE plus WARNING" {
-  _stub_docker 2
-  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"test: NOTICE: container DNS unreachable under runsc; auto-selecting hardened-runc fallback for this run."* ]]
-  [[ "$output" == *"test: WARNING: using explicit hardened-runc fallback (no gVisor syscall interposition)."* ]]
-}
 
-@test "auto-runtime on rc=125 heals with a distinct startup NOTICE plus WARNING" {
-  _stub_docker 125
-  runtime_args=(--runtime=runsc)
-  fallback_requested=0
-  explicit_runsc=0
-  box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com >"$TEST_TMP/out.txt" 2>&1
-  [ "$?" -eq 0 ]
-  [ "${runtime_args[*]}" = "--runtime=runc" ]
-  [ "$fallback_requested" -eq 1 ]
-  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"NOTICE: runsc failed to start or complete probe containers (exit 125); auto-selecting hardened-runc fallback for this run."* ]]
-  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"explicit hardened-runc fallback"* ]]
-}
 
-@test "auto-runtime on rc=124 heals with a distinct startup NOTICE plus WARNING" {
-  _stub_docker 124
-  runtime_args=(--runtime=runsc)
-  fallback_requested=0
-  explicit_runsc=0
-  box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com >"$TEST_TMP/out.txt" 2>&1
-  [ "$?" -eq 0 ]
-  [ "${runtime_args[*]}" = "--runtime=runc" ]
-  [ "$fallback_requested" -eq 1 ]
-  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"NOTICE: runsc failed to start or complete probe containers (exit 124); auto-selecting hardened-runc fallback for this run."* ]]
-  [[ "$(cat -- "$TEST_TMP/out.txt")" == *"explicit hardened-runc fallback"* ]]
-}
+
+
+
 
 @test "auto-runtime kill-switch on rc=125 dies with startup remediation" {
   _stub_docker 125
@@ -276,11 +219,76 @@ timeout() { [[ "$1" != --kill-after=* ]] || shift; shift; "$@"; }
   [[ "$output" == *"runsc --version"* ]]
 }
 
-@test "auto-runtime kill-switch on rc=2 keeps the DNS die text" {
-  _stub_docker 2
-  TEST_BOX_ALLOW_FALLBACK=0
-  export TEST_BOX_ALLOW_FALLBACK
-  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+
+
+@test "default probe failure never selects runc for DNS startup timeout or signals" {
+  local rc
+  for rc in 1 2 3 124 125 129 130 137 143; do
+    _stub_docker "$rc"
+    runtime_args=(--runtime=runsc)
+    fallback_requested=0
+    explicit_runsc=0
+    run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+    [ "$status" -ne 0 ]
+    [[ "$output" != *auto-selecting* ]]
+    [[ "$(cat "$STUB_C_FILE.args")" != *--runtime=runc* ]]
+    [ "$fallback_requested" -eq 0 ]
+    [ "${runtime_args[*]}" = --runtime=runsc ]
+  done
+}
+
+@test "default gate refuses DNS failure with explicit fallback remediation" {
+  _stub_docker 1
+  dry_run=0; fallback_requested=0; shell_mode=0; explicit_runsc=0
+  run box_maybe_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
   [ "$status" -ne 0 ]
-  [[ "$output" == *"runsc container DNS unreachable and fallback disabled via TEST_BOX_ALLOW_FALLBACK=0; refusing to start this run."* ]]
+  [[ "$output" == *'refusing to start this run'* ]]
+  [[ "$output" == *'explicitly select --docker-fallback'* ]]
+}
+
+@test "default runtime preserves login diagnostic context" {
+  _stub_docker 1
+  explicit_runsc=0
+  run box_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK '' host.example.com
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'refusing to start `login`'* ]]
+}
+
+@test "offline diagnostics skip default DNS health checks" {
+  _stub_docker 1
+  dry_run=0; fallback_requested=0; shell_mode=0; explicit_runsc=0
+  local network_required=0
+  box_maybe_auto_runtime some-image:0 some-net TEST_BOX_ALLOW_FALLBACK 'this run' host.example.com
+  [ ! -e "$STUB_C_FILE" ]
+}
+
+@test "launch tail classifies informational logout and login status commands as offline" {
+  dry_run=1; fallback_requested=0; shell_mode=0; explicit_runsc=0
+  runtime_args=(--runtime=runsc)
+  image=fixture; tool_network=fixture; container=fixture
+  identity_name=Test; identity_email=test@example.com
+  local -a fixture_mounts=()
+  fixture_tail() { args+=("$image" "$@"); }
+  box_docker_exec() { return 0; }
+  box_maybe_auto_runtime() { [ "$network_required" -eq "$expected_network" ]; }
+  local command expected_network=0
+  for command in --help --version help version logout status; do
+    box_launch_epilogue codex 'this run' org.box.test fixture_mounts '' fixture_tail "$command"
+  done
+  box_launch_epilogue codex 'this run' org.box.test fixture_mounts '' fixture_tail login status
+  expected_network=1
+  box_launch_epilogue codex 'this run' org.box.test fixture_mounts '' fixture_tail login --device-auth
+}
+
+@test "invalid fallback selectors refuse before project preflight even when runsc is selected" {
+  fallback_requested=0
+  for value in '' invalid; do
+    TEST_BOX_ALLOW_FALLBACK="$value" run box_check_fallback TEST_BOX_ALLOW_FALLBACK
+    [ "$status" -ne 0 ]
+  done
+  box_project_identity() { printf 'project reached'; return 1; }
+  BOX_C_ALLOW_FALLBACK=broken run box_launch_prologue muse
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"BOX_C_ALLOW_FALLBACK must be 0 or 1"* ]]
+  [[ "$output" != *"project reached"* ]]
 }

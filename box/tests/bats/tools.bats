@@ -142,3 +142,41 @@ load helpers
   [ "$status" -ne 0 ]
   [[ "$output" == *'Invalid canonical volume'* ]]
 }
+
+@test "every harness declares exactly one auth record with adapter and fallback" {
+  for id in $box_tool_ids; do
+    auth_states=""
+    for state in $(box_tool_field "$id" states); do
+      if [[ "$(box_state_field "$id" "$state" class)" == auth ]]; then
+        auth_states+="$state "
+      fi
+    done
+    [ "$auth_states" = "auth " ] || { echo "harness $id must declare exactly one auth state (got: $auth_states)"; return 1; }
+    [ "$(box_state_field "$id" auth scope)" = "auth-policy" ]
+    [ "$(box_state_field "$id" auth kind)" = "bind" ]
+    [ "$(box_state_field "$id" auth root)" = ".config/box/auth" ]
+    [ "$(box_state_field "$id" auth override)" = "BOX_AUTH_ROOT" ]
+    [ "$(box_state_field "$id" auth runtime)" = "/run/box-auth" ]
+    case "$(box_state_field "$id" auth default_scope)" in global|project) ;; *) return 1 ;; esac
+    [ "$(box_state_field "$id" auth adapter)" = "harnesses/$id/auth.sh" ]
+    [ "$(box_state_field "$id" auth schema_version)" = "1" ]
+    [ -f "$BUNDLE_DIR/$(box_state_field "$id" auth adapter)" ]
+  done
+  [ "$(box_state_field muse auth default_scope)" = "global" ]
+  [ "$(box_state_field opencode auth default_scope)" = "project" ]
+  [ "$(box_state_field codex auth default_scope)" = "project" ]
+}
+
+@test "registry rejects missing or duplicated auth records" {
+  run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_TOOL_REGISTRY[muse,states]="home volume"; box_validate_registry "$1"' _ "$BUNDLE_DIR"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Missing auth state'* ]]
+  run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_TOOL_REGISTRY[muse,states]="home volume auth auth2"; for field in $box_state_fields; do _BOX_STATES[muse,auth2,$field]="${_BOX_STATES[muse,auth,$field]}"; done; box_validate_registry "$1"' _ "$BUNDLE_DIR"
+  [ "$status" -ne 0 ]
+}
+
+@test "registry rejects orphan auth fields on non-auth states" {
+  run bash -c 'BOX_TOOL=test; source "$1/lib/preflight.sh"; source "$1/lib/tools.sh"; _BOX_STATES[muse,home,adapter]=harnesses/muse/auth.sh; box_validate_registry "$1"' _ "$BUNDLE_DIR"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Orphan auth field'* ]]
+}

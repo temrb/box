@@ -245,7 +245,7 @@ _installed_layout() {
   mkdir -p -- "$inst/lib"
   cp -- "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o" "$BUNDLE_DIR/box-c" "$inst/"
   cp -r "$BUNDLE_DIR/harnesses" "$inst/"
-  cp -- "$BUNDLE_DIR"/lib/*.sh "$inst/lib/"
+  cp -- "$BUNDLE_DIR"/lib/*.sh "$BUNDLE_DIR"/lib/*.py "$inst/lib/"
 }
 
 @test "box-m --dry-run: installed layout tags from the config-file version" {
@@ -483,7 +483,7 @@ _muse_login_stub() {
   cp -- "$BUNDLE_DIR/box-m-login" "$stub/"
   mkdir -p "$stub/harnesses/muse"
   cp "$BUNDLE_DIR/harnesses/muse/native.sh" "$stub/harnesses/muse/"
-  cp -- "$BUNDLE_DIR"/lib/*.sh "$stub/lib/"
+  cp -- "$BUNDLE_DIR"/lib/*.sh "$BUNDLE_DIR"/lib/*.py "$stub/lib/"
 }
 
 @test "box-m-login hints when login succeeds without a device URL" {
@@ -581,4 +581,28 @@ STUB
   [ "$rc" -eq 143 ]
   [ -e "$HOME/group-cleaned" ]
   ! kill -0 "$delegated" 2>/dev/null
+}
+
+@test "OpenCode image startup refusal releases an untouched host reservation" {
+  _opencode_dry_run_env
+  _stub_dryrun_bundle
+  cat > "$STUBBIN/docker" <<'SH'
+#!/bin/bash
+case "$*" in
+  *'info --format {{json .SecurityOptions}}'*) printf '["name=seccomp"]\n';;
+  *'info --format {{json .Runtimes}}'*) printf '{"runsc":{},"runc":{}}\n';;
+  *'version --format {{.Server.Version}}'*) printf '28.0.0\n';;
+  *'image inspect'*) exit 1;;
+  *'ps -q'*) exit 0;;
+  *) echo 'unexpected fixture Engine operation' >&2; exit 125;;
+esac
+SH
+  cd "$TEST_PROJ"
+  BOX_O_IMAGE=box-fixture-missing:missing run "$STUB_BUNDLE/box-o" --runsc --shell -c true
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'Build the image for your UID/GID first'* ]]
+  h=$(box_state_project_hash "$project")
+  dir=$(box_auth_object_dir opencode project "$host_uid" "$h")
+  run jq -e '.state == "idle" and (has("projection") | not)' "$dir/lease.json"
+  [ "$status" -eq 0 ]
 }

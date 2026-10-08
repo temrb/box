@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "revision": "c85d13ca5706ba865bdede73b8aa8021df8a28ff",
+  "dirty_checkout": true,
+  "architecture": "x86_64",
+  "evidence_class": "N",
+  "execution": "host; disposable synthetic credentials; no Docker or dedicated account",
+  "source_sha256": {
+    "box/Makefile": "29899ad221c6d55a472456a6ba11c750d13eba80f1380f2afe376ac10113a202",
+    "box/lib/pins.sh": "587dd313bd241a8821b58081b05e4948bd79090302ecec45aac704ed7dd81b94",
+    "box/lib/tools.sh": "68d13a2cbc3fd1524a3b71460f42a7af934fc1e1baedbebb687bb35c994118ba",
+    "box/Dockerfile": "b0fb41f470b1dc7295f135ea034470ff308e386d93ebe0779b2b578972194681",
+    "box/tests/native/muse-auth-fixture.py": "22a16d0e2e06cc8a5dc56c3fd677502f6702078de31997b1bc9f8064d81583b3",
+    "box/harnesses/muse/auth.sh": "0226d73a0a1a578fcb0046ca89a58b9fd86d499c5a70e0dde72a5bb6b5aeda71",
+    "box/harnesses/muse/version-muse.env": "084b9b8f54334bd71e035754dbbc9dade6d0ef321ffdf3b152a3e7341b67c696",
+    "box/tests/native/opencode-auth-fixture.py": "3f7dc0c0da37c10d4b353018df0bf6276f029fa045642d06ca0eb6485351b0d2",
+    "box/harnesses/opencode/auth.sh": "7cd5e4446cc1be813c4d62b009c0c23e67c8a61f953fb86a5979e71b307b2900",
+    "box/harnesses/opencode/version-opencode.env": "593a227c168120db52d5f090839139054e390f8f795d756f788698e54ae8c22d",
+    "box/tests/native/codex-auth-fixture.py": "ee15c053ac0b8acf9ae91d73af24682936df0016329b7cc683493737e62fea24",
+    "box/harnesses/codex/auth.sh": "5a012751f521a164c69d691e4ad8fda9b9a342724c5d81ab2c3e5f3a5ae08618",
+    "box/harnesses/codex/version-codex.env": "d469cba2c101ed683f289c6350097a73f1880f63aa6cafc79d68cd7064ddeb95",
+    "box/harnesses/opencode/auth-state.py": "590e88be4828f42acf61ff21560799c7eb8ac001dd98daccf3bbd770fa0718d0",
+    "box/harnesses/opencode/archive.py": "c46ed78af917de43a282abed8eb8080dca3d3bc09ac71aca050acb72bfeb446a"
+  },
+  "artifacts": {
+    "muse": {
+      "sha256": "1b68bd4518d53a2aaff063915df4d141b0a205e6d79038299d04e3a14e85a5b9",
+      "log": "/tmp/box-native-muse-continuation.txt",
+      "log_sha256": "578142bc3d2e275a8cca493f2d2eaafba1728311002de39b17b2c16d99149de5",
+      "result": "passed synthetic fixture; full native gate open"
+    },
+    "opencode": {
+      "sha256": "228deae7b0c7d604ba236956da246e1c5109bc9269b327d0208240599490689c",
+      "log": "/tmp/box-native-opencode-continuation.txt",
+      "log_sha256": "65fe9c6b1a7c80e47cfd293d2540d11fbb87f1bf5c4ff6406a7ff2904818051c",
+      "result": "passed synthetic fixture; full native gate open"
+    },
+    "codex": {
+      "sha256": "4fcc47ab57f52ff75363951a8761146cd10c8288bd86fed45487dbb204a16b71",
+      "log": "/tmp/box-native-codex-continuation.txt",
+      "log_sha256": "7e06d250f28d365a98aa5e534ea1a6619fe2bf6037b8832d7a850176f5105003",
+      "result": "passed synthetic fixture; full native gate open"
+    }
+  },
+  "unmet": [
+    "runsc/Engine/network/callback qualification",
+    "Muse device/OAuth/MCP and actual trust membership",
+    "OpenCode real OAuth/account/importer and complete schema contract",
+    "Codex native MCP/alternate-backend and real token refresh",
+    "crash/filesystem durability",
+    "ARM64 execution",
+    "remote CI"
+  ],
+  "opencode_client_schema_sha256": "1595725dab445c6cfabc638fafa2d9bc66a2d1f9c5f038b33996f419702dd971"
+}

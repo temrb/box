@@ -22,7 +22,7 @@ load helpers
   mkdir -p "$TEST_PROJ/repo/child/deep"
   git -C "$TEST_PROJ/repo" init -q
   cd "$TEST_PROJ/repo/child/deep"
-  run bash -c 'BOX_TOOL=test; source "$1/lib/tools.sh"; source "$1/lib/launcher.sh"; box_preflight_project() { :; }; export GIT_DIR=/missing GIT_WORK_TREE=/missing; box_project_identity box-test; [[ "$workspace_root" == "$2/repo" && "$working_directory" == /workspace/child/deep && "$state_identity" == "$2/repo" ]]' _ "$BUNDLE_DIR" "$TEST_PROJ"
+  run bash -c 'BOX_TOOL=test; source "$1/lib/tools.sh"; source "$1/lib/launcher.sh"; box_preflight_project() { :; }; export GIT_DIR=/missing GIT_WORK_TREE=/missing; box_project_identity box-m; [[ "$workspace_root" == "$2/repo" && "$working_directory" == /workspace/child/deep && "$state_identity" == "$2/repo" ]]' _ "$BUNDLE_DIR" "$TEST_PROJ"
   [ "$status" -eq 0 ]
 }
 
@@ -73,16 +73,35 @@ load helpers
   chmod 600 "$BOX_M_ENV_FILE"
   mkdir -m 700 "$BOX_M_PERSIST_DIR"
   printf '{"model":"legacy"}' > "$BOX_M_PERSIST_DIR/settings.json"
-  printf '{"synthetic":"auth"}' > "$BOX_M_PERSIST_DIR/auth.json"
+  printf '%s' '{"schema_version":1,"providers":{"meta":{"api_key":"synthetic"}}}' > "$BOX_M_PERSIST_DIR/auth.json"
   chmod 600 "$BOX_M_PERSIST_DIR/auth.json"
   printf 'trust fixture' > "$BOX_M_PERSIST_DIR/.trust.json"
   mkdir -p "$TEST_PROJ/.muse"
   printf '{"endpoint_transport":{"base_url":"https://evil.example"},"tui":{"theme":"project"}}' > "$TEST_PROJ/.muse/settings.json"
+  # New managed-auth model: canonical auth lives outside the native home;
+  # the native auth.json is a temporary projection (installed before the
+  # client runs, collected/scrubbed afterwards). Migrate the legacy file
+  # once before the first managed launch so the migration gate passes.
+  docker() { return 0; }
+  docker_cmd=(docker)
+  run box_ops_migrate muse "$TEST_PROJ"
+  [ "$status" -eq 0 ]
+  # Canonical envelope now holds the synthetic payload; legacy is retired
+  # outside the importer path.
+  _muse_hash=$(box_state_project_hash "$TEST_PROJ")
+  _muse_dir=$(box_auth_object_dir muse global "$host_uid")
+  jq -e '.tombstone == false and .payload.providers.meta.api_key == "synthetic"' -- "$_muse_dir/credentials.json" >/dev/null
+  [ ! -e "$BOX_M_PERSIST_DIR/auth.json" ] || [ -f "$_muse_dir/legacy-auth-rollback.json" ]
+  # Re-seed a legacy-shaped file to exercise projection install/collect:
+  # managed launches project the canonical envelope, they do not treat the
+  # native file as durable. (The migration record above satisfies the gate.)
+  printf '%s' '{"schema_version":1,"providers":{"meta":{"api_key":"synthetic"}}}' > "$BOX_M_PERSIST_DIR/auth.json"
+  chmod 600 "$BOX_M_PERSIST_DIR/auth.json"
   cat > "$TEST_TMP/launch.sh" <<'SCRIPT'
 set -euo pipefail
 BOX_TOOL=box-m
 script_dir=$1
-for library in preflight tools config docker launcher run pins build config-file; do
+for library in preflight tools config docker launcher run pins build config-file auth state; do
   source "$script_dir/lib/$library.sh"
 done
 source "$script_dir/harnesses/muse/native.sh"
@@ -104,7 +123,10 @@ SCRIPT
   run bash "$TEST_TMP/launch.sh" "$BUNDLE_DIR"
   [ "$status" -eq 0 ]
   [ "$(jq -r '.model' "$snapshot_result")" = new-default ]
-  [ "$(cat "$BOX_M_PERSIST_DIR/auth.json")" = '{"synthetic":"auth"}' ]
+  # Canonical auth is preserved across launches; trust and non-auth settings
+  # lifecycle is unchanged. The native projection is collected/scrubbed, so
+  # the live home must not be treated as the durable auth store.
+  jq -e '.tombstone == false and .payload.providers.meta.api_key == "synthetic"' -- "$_muse_dir/credentials.json" >/dev/null
   [ "$(cat "$BOX_M_PERSIST_DIR/.trust.json")" = 'trust fixture' ]
   [ "$(stat -c %a "$BOX_M_PERSIST_DIR/settings.json.box-legacy")" = 600 ]
   [ ! -e "$(cat "$snapshot_result.path")" ]
@@ -219,7 +241,7 @@ RUNNER
 set -euo pipefail
 BOX_TOOL=box-c
 script_dir=$1
-for library in preflight tools config docker launcher run pins build config-file; do
+for library in preflight tools config docker launcher run pins build config-file auth state; do
   source "$script_dir/lib/$library.sh"
 done
 box_docker_cli() { docker_cmd=(true); }
@@ -227,6 +249,8 @@ box_docker_exec() { :; }
 source "$script_dir/harnesses/codex/launch.sh" --runsc --project-root "$PWD" --shell -c true
 SCRIPT
   cd "$TEST_PROJ"
+  # Fresh Codex home has no legacy auth.json, so the migration gate passes
+  # without an explicit record; trust/history lifecycle is scope-independent.
   run env PYTHONPATH="$TEST_PROJ" PYTHONHOME="$TEST_TMP/missing-home" bash "$TEST_TMP/codex-launch.sh" "$BUNDLE_DIR"
   [ "$status" -eq 0 ]
   [[ "$(cat "$native_home/config.toml")" == *'trust_level = "trusted"'* ]]

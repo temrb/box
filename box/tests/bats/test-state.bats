@@ -280,3 +280,18 @@ _assert_no_docker() {
   run box_test_volume codex t-abcdef123456 1000 100
   [ "$status" -ne 0 ]
 }
+
+@test "bind guard accepts disposable Codex override while rejecting production aliases" {
+  _clear_test_ns
+  _fake_docker
+  export BOX_TEST_TASK_ROOT="$TEST_TMP/task" BOX_TEST_REAL_HOME="$TEST_HOME"
+  export BOX_C_STATE_ROOT="$BOX_TEST_TASK_ROOT/t-abcdef123456"
+  mkdir -p "$BOX_C_STATE_ROOT"
+  run box_test_guard_bind_root "$BOX_C_STATE_ROOT/codex-home"
+  [ "$status" -eq 0 ]
+  export BOX_TEST_TASK_ROOT="$TEST_HOME/.config/box-c/projects/task"
+  export BOX_C_STATE_ROOT="$BOX_TEST_TASK_ROOT/t-abcdef123456"
+  run box_test_guard_bind_root "$BOX_C_STATE_ROOT/codex-home"
+  [ "$status" -ne 0 ]
+  _assert_no_docker
+}

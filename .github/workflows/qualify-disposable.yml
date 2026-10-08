@@ -1,0 +1,103 @@
+# Account-independent observations on fresh VMs; no reusable account secrets,
+# local image exports or production state. Trusted repository/ref only.
+name: qualify-disposable
+
+on:
+  push:
+    branches:
+      - codex/todo-groundwork-20261008-85ed4ee
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    if: >-
+      github.repository == 'temrb/box' &&
+      (github.ref == 'refs/heads/codex/todo-groundwork-20261008-85ed4ee' ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-24.04
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    concurrency:
+      # Separate disposable VMs have no shared Engine or native state. Keep
+      # each exact snapshot independent of slower historical qualifications.
+      group: box-disposable-${{ github.ref }}-${{ matrix.platform }}-${{ github.sha }}
+      cancel-in-progress: false
+    env:
+      BOX_QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify published source against the dirty implementation inventory
+        id: source
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/box-evidence"
+          python3 -I specs/capture-baseline.py > "$RUNNER_TEMP/box-evidence/source-baseline.json"
+          python3 -I specs/compare-baselines.py --publication \
+            .qualification/source-baseline.json "$RUNNER_TEMP/box-evidence/source-baseline.json" \
+            > "$RUNNER_TEMP/box-evidence/source-comparison.json"
+      - name: Install qualification tools and the complete signed gVisor package
+        id: prerequisites
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q shellcheck bats ripgrep jq python3 curl gnupg
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 https://gvisor.dev/archive.key \
+            -o "$RUNNER_TEMP/gvisor-archive.key"
+          sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg "$RUNNER_TEMP/gvisor-archive.key"
+          printf 'deb [arch=%s signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main\n' \
+            "$(dpkg --print-architecture)" | sudo tee /etc/apt/sources.list.d/gvisor.list >/dev/null
+          sudo apt-get update -q
+          sudo apt-get install -y -q runsc
+          sudo runsc install --runtime=runsc
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}' | jq -e 'has("runsc")' >/dev/null
+          mkdir -m 700 "$HOME/box-qualification"
+          printf 'BOX_QUALIFICATION_ROOT=%s\n' "$HOME/box-qualification" >> "$GITHUB_ENV"
+          {
+            uname -a
+            id
+            runsc --version
+            dpkg-query -W runsc
+            docker version
+            docker info --format 'server={{.ServerVersion}} runtimes={{json .Runtimes}} cgroup={{.CgroupVersion}} driver={{.Driver}} security={{json .SecurityOptions}}'
+          } > "$RUNNER_TEMP/box-evidence/host.txt"
+      - name: Execute disposable build, runtime and native gates
+        run: bash -p box/tests/native/ci-qualification.sh
+      - name: Qualify real bounded ext4 block and inode exhaustion
+        if: >-
+          always() && steps.source.outcome == 'success' &&
+          steps.prerequisites.outcome == 'success'
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/box-filesystem"
+          bash -p box/tests/native/qualify-ext4.sh "$RUNNER_TEMP/box-filesystem" \
+            > "$RUNNER_TEMP/box-evidence/filesystem.log" 2>&1
+      - name: Collect only qualification logs and provenance
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/box-evidence"
+          for directory in "$HOME"/box-qualification/box-ci.*/evidence; do
+            [[ -d "$directory" ]] || continue
+            for member in "$directory"/*.log "$directory"/*.tsv "$directory"/source.txt; do
+              [[ -f "$member" && ! -L "$member" ]] || continue
+              cp -- "$member" "$RUNNER_TEMP/box-evidence/"
+            done
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: box-observations-${{ matrix.platform }}
+          path: ${{ runner.temp }}/box-evidence/
+          if-no-files-found: error
+          retention-days: 7

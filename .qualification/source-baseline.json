@@ -1,0 +1,1161 @@
+{
+  "captured_at": "2026-10-08T17:31:11.516096+00:00",
+  "head": "c85d13ca5706ba865bdede73b8aa8021df8a28ff",
+  "host": {
+    "architecture": "x86_64",
+    "gid": 1000,
+    "kernel": "7.0.0-38-generic",
+    "python": "3.13.5",
+    "system": "Linux",
+    "uid": 1000
+  },
+  "local_engine_socket_present": false,
+  "members": {
+    ".github/workflows/qualify-disposable.yml": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "9e690702aba84753e30767505737ccdf37eb34b2ddbf53425a40f928ee880483",
+      "size": 4706
+    },
+    ".github/workflows/qualify-native.yml": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "10da80ae4037b91bbd5a6f932815998cd4eb075d510c4ab941a0b6d7c438afdb",
+      "size": 1191
+    },
+    ".github/workflows/verify.yml": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "fb73808a94cc73e4d40104880c4069620dec1fa644abcb8cc6aaf9e077caaa1f",
+      "size": 1120
+    },
+    ".gitignore": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "d4044d337c1e9c398bb4c571b1aa9d713d549cd7af89c9e1cd93add52b857181",
+      "size": 1041
+    },
+    "AGENTS.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "f526d91b2a837b4d5b7a7a42ed7c3c9be6eb0a56caa4a9844529422df5a2c36c",
+      "size": 4143
+    },
+    "LICENSE": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a84f64f04c5d6b39e2ffa72eb784dd4ddb43f036e9004f782d4dc98e5bdfa2df",
+      "size": 1670
+    },
+    "README.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "9ca883550473353cd66a6d9f82c5421d8d7894c39a29dac756e1615eaa8965a1",
+      "size": 312
+    },
+    "box/.dockerignore": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a3be4848898494202fca972cfd3822fb1f51db247e7b5a0ab4425abe37239fc4",
+      "size": 922
+    },
+    "box/Dockerfile": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "b0fb41f470b1dc7295f135ea034470ff308e386d93ebe0779b2b578972194681",
+      "size": 12955
+    },
+    "box/Makefile": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "5280e556298e87120ad90a77e6e1aaf53ab6da895ec294e699bb6899e06c8091",
+      "size": 16420
+    },
+    "box/README.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "ac0b006afd760ff0cf4af350c1f554be9d1e4392d6929f36462974430229ff68",
+      "size": 3893
+    },
+    "box/box-c": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "36cdf44644992c85b1308a306a1db4376720edafe43ea5ab472ebbe09f8faf36",
+      "size": 1364
+    },
+    "box/box-m": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "6b468905b4ba5fad0af4112274a1538126324641176e1a758ca8fe9d33c6cfc0",
+      "size": 1611
+    },
+    "box/box-m-login": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "39439d8b0d15ec6864b1a3abf392f47b1520627442fe966ac8c30c12f85d5722",
+      "size": 7971
+    },
+    "box/box-o": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "ceb4c89d6732e15b86b5f7599cf4020d208016b27af1083d6a44b78403ff0fa0",
+      "size": 1370
+    },
+    "box/check-pins.sh": {
+      "kind": "file",
+      "mode": "0o775",
+      "sha256": "d30851842b8e55683ddf815494d982810921b8e0d12a6304f75b665e0604732e",
+      "size": 5871
+    },
+    "box/docs/acceptance.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "2d58e4ca833456994a02ff98a0506d014d3ec3a079b1db99ea650b9f573590b1",
+      "size": 42507
+    },
+    "box/docs/adding-a-tool.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "7d0606fd59da0fa26b7b237f9e0930fd2d0a5b3ca1c068ee812c08cffb5e044f",
+      "size": 6086
+    },
+    "box/docs/architecture.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "82cc863bd8af87316db664087673d2efaa64cefaea9b83526d37bb3003c8a675",
+      "size": 15302
+    },
+    "box/docs/evidence/opencode-v2-cutover.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d33c0dd0837dc9587879bcc4bbad6e28b9f89e583ef31a40224f263fd7503792",
+      "size": 5850
+    },
+    "box/docs/evidence/opencode-v2-evaluation.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "9a83d964dd4e54f507af7e9c5dea0adc155a67f9b6038e538e43c4583635f15d",
+      "size": 7013
+    },
+    "box/docs/harnesses.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "53d8474086596c3aff2546475188035508d9ea32e1344f10b4992e6e28d6e446",
+      "size": 1952
+    },
+    "box/docs/operations.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "d7464ce10033aaa160c161b43454ea74a2786f0b4ed22453e8bd954b2d58f601",
+      "size": 32758
+    },
+    "box/docs/security-resource-audit.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "2861ed2312a7d6fd0b082c167cd65e623d83645ec7427a5ac98236a222fe48e3",
+      "size": 25662
+    },
+    "box/docs/troubleshooting.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "b0f663e67f0a787ae044d4aec384a136f8fd306340321bd17307783ed95798f7",
+      "size": 6832
+    },
+    "box/docs/upgrades.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "41632a56c247da2328cab631421673ff20b12f2e955ac3939d7d9b88c7d23ca3",
+      "size": 7806
+    },
+    "box/gen-pins.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "84e126060fcaacb2812763bbe431a035188dcafe9201f1a7d440ad885e94a83e",
+      "size": 7277
+    },
+    "box/gen-verify.sh": {
+      "kind": "file",
+      "mode": "0o775",
+      "sha256": "891eabaa5c62d570247a68ed5c49a1f94b3df4dd31e36367d19a52eaeeb81a7c",
+      "size": 9790
+    },
+    "box/harnesses/codex/README.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "a4f29c054c214e3f691be014462cba0b7219ae9525ceb430f7eeb31c46352fa7",
+      "size": 7301
+    },
+    "box/harnesses/codex/auth.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "8de0a47bde2bbc9a6dad34d9207fafb3cd7c203d8f4bcd6106593666e8c9a8ca",
+      "size": 8254
+    },
+    "box/harnesses/codex/config/config.toml": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a22a94d7797f400df6138fb4a9b7b280eb44fc2c557073d2deafa2f6dbe6c13d",
+      "size": 1313
+    },
+    "box/harnesses/codex/launch.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "d0bd5c280c85962fb5c493ca6657ecbebb33e13cd12bd0edd5eb1eab11f3645a",
+      "size": 8206
+    },
+    "box/harnesses/codex/native-probe.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "9629c45a132955755286f1ebcd34093fca9c5dd8c390814bd65c2555436623f5",
+      "size": 8220
+    },
+    "box/harnesses/codex/policy/requirements.toml": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "1ec9e50355b4ec01d103f3d5b9d6833797469043001e3cc8c876cd12b761f4bb",
+      "size": 367
+    },
+    "box/harnesses/codex/update.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a15a17b6e1e42cbba51d55f52a973426e0eb57e6584ad20dd552ad616ed6e5b0",
+      "size": 2474
+    },
+    "box/harnesses/codex/validate.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "fce79f8ff8bf822a7e7ce5123db33746c6b7698fd70fb39f3de0281379c848f5",
+      "size": 3256
+    },
+    "box/harnesses/codex/verify.d/00-header-codex.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "3b353118aa6884ed17881d3db9ea01163a6f937c0092d3eaf408e7020bf3ad4b",
+      "size": 2442
+    },
+    "box/harnesses/codex/verify.d/30-network-codex.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "880ac8b048e42258c405cbcad37c6f845e5a6ff3d7f36e4794b94d98489285dd",
+      "size": 599
+    },
+    "box/harnesses/codex/verify.d/40-readiness-codex.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "4ade9028c6d1b082e8fc62dceb2401cf81326edacc500019546a7168a6bd8ad7",
+      "size": 2447
+    },
+    "box/harnesses/codex/verify.d/60-probe-codex.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "eb9b40964a2e093bccc194bfa4134d5a9146773793e0f72d1256621b40ec75ab",
+      "size": 128
+    },
+    "box/harnesses/codex/verify.d/99-footer-codex.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "c8f8141db983c06038acfdfa0b2ab0cb3fbf06300efcfc3693b79520a6662e1b",
+      "size": 469
+    },
+    "box/harnesses/codex/version-codex.env": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "d469cba2c101ed683f289c6350097a73f1880f63aa6cafc79d68cd7064ddeb95",
+      "size": 342
+    },
+    "box/harnesses/muse/README.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "de1733577107c8f4b49597e6166e10ec7daac5a5248397447b2666bd5920425b",
+      "size": 5755
+    },
+    "box/harnesses/muse/auth.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "e71c374d8566fc7f6a19ac0af65ee677746572c3291351423d1a21b068540e57",
+      "size": 8201
+    },
+    "box/harnesses/muse/config/settings.json": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "7b66b1f99be6e6453a3984e144b2e5f534c797eff352a58f9e397d6c78974aca",
+      "size": 199
+    },
+    "box/harnesses/muse/install.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "4e75fac30b15ba6afb9a3435ac990139a476b751d83190c4a46a8d3edad16cc6",
+      "size": 1449
+    },
+    "box/harnesses/muse/launch.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "87115babefa003dbcda8808235ccfe1a059e197382f453dc3221720eb2e8f942",
+      "size": 9865
+    },
+    "box/harnesses/muse/native.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "46e8712b79c93fef3194c1e5c34cd08c9107e9980887fdab058432e68d98fc78",
+      "size": 5718
+    },
+    "box/harnesses/muse/update.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "617c0dabee53240eddc061230577283385a0e81b7f010323f8da189389157b58",
+      "size": 2837
+    },
+    "box/harnesses/muse/validate.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "aec5759bfa631d41ec4757207b0600407740c1a6cdcb4b4e0a0e08ee4ca647aa",
+      "size": 687
+    },
+    "box/harnesses/muse/verify.d/00-header-muse.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "4ea4f7165b6302d4a40ae71f0fd50c6a67e473f99e6c3b3ecd8f9c30a8756fb6",
+      "size": 2381
+    },
+    "box/harnesses/muse/verify.d/30-network-muse.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "3b4a50d26b793734b1d6831810bea5e3d81d88c9c627a4430b7776bdc8c2f0d1",
+      "size": 474
+    },
+    "box/harnesses/muse/verify.d/40-readiness-muse.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "23c47a575896f30a3ea4ca5c3f7fadfbe117b3752be5b48948657fc92e1767ad",
+      "size": 4503
+    },
+    "box/harnesses/muse/verify.d/60-probe-muse.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "2abebafaa1f6d0f846c8fa550e2e1ffe841b548b2053def56ce0ab0ac8af4765",
+      "size": 787
+    },
+    "box/harnesses/muse/verify.d/99-footer-muse.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "5a3efa9a4ed5b3b9e144cdf402810605332979cf0a4f2cc1e31c134315b3194b",
+      "size": 475
+    },
+    "box/harnesses/muse/version-muse.env": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "084b9b8f54334bd71e035754dbbc9dade6d0ef321ffdf3b152a3e7341b67c696",
+      "size": 336
+    },
+    "box/harnesses/opencode/README.md": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "d7b84ee8c42045774a03cc4af237d18b5bdd53ca241554dc03cdaf7b1dd57ba7",
+      "size": 6735
+    },
+    "box/harnesses/opencode/archive.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "c46ed78af917de43a282abed8eb8080dca3d3bc09ac71aca050acb72bfeb446a",
+      "size": 803
+    },
+    "box/harnesses/opencode/auth-state.py": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "0b41972a0af668ef70878c587c2f8576c8ae5a503044b880e3b3fc29746c97f2",
+      "size": 30917
+    },
+    "box/harnesses/opencode/auth-volume.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "706d35f752f6119320d76464deac2559fc32f8e45ee0981e155a591fc43661f4",
+      "size": 10562
+    },
+    "box/harnesses/opencode/auth.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "bdbc00298286e2b1feb75839d0de3d6df161ce896add4cb888a4b59bcea65bda",
+      "size": 3386
+    },
+    "box/harnesses/opencode/capture-validation.sh": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "472afd458db60b8947039ac048b7014bb3c8c9b5e21fdb74b513711ec6f02628",
+      "size": 9000
+    },
+    "box/harnesses/opencode/config/opencode.json": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "af981e2cfda93fd8997b9f451a9918b488cc40fea8b51dafa47d0f4ed4e498ea",
+      "size": 665
+    },
+    "box/harnesses/opencode/entrypoint.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "3ca7827530a41533dde85feacccdd6a9ba9b4a67dd0b709e5326b762d43afb8b",
+      "size": 10166
+    },
+    "box/harnesses/opencode/launch.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "228be7c30b6ea99a927fbdb54f5423cfde9f8bf51ee7c665003d34d87cc3fdaf",
+      "size": 6082
+    },
+    "box/harnesses/opencode/native-probe.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "0e688b7c3e62fc5ad3365e745fcc38f3373bc1ebd66e02e9ced544a804b2f938",
+      "size": 15213
+    },
+    "box/harnesses/opencode/update.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "4360348533444a9802acc2b797a87b404d90c0f34828f0cb5a2028085486cffd",
+      "size": 3043
+    },
+    "box/harnesses/opencode/validate.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "065fae6392a44330250c1a3c635aa17130d0912a4664dd377a51c5aee35480d7",
+      "size": 1602
+    },
+    "box/harnesses/opencode/validation/resolved-config.json": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "8ddfd513ed138f34bbbbb91947fdc55370fcdf7e8980989f9d01e852203a7e24",
+      "size": 549
+    },
+    "box/harnesses/opencode/verify.d/00-header-opencode.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "23a446f5892b487615cf0af5565992a446d7a0b626da6f9e515ee6add5f1db9c",
+      "size": 2442
+    },
+    "box/harnesses/opencode/verify.d/30-network-opencode.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "0974a0984b9bed463d4aac64531395a9770fca6dc801339e6c70de6644bd6c92",
+      "size": 234
+    },
+    "box/harnesses/opencode/verify.d/40-readiness-opencode.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "a6e0958ae6d2f1bc37940a7edd11cc849b21c2801dcbbda67d8e39d38987a85d",
+      "size": 4527
+    },
+    "box/harnesses/opencode/verify.d/60-probe-opencode.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "68bcd0bd9b9d5fc64ddea0394b298dcaab5b606d6405dbf2ea77c9277d2ab179",
+      "size": 504
+    },
+    "box/harnesses/opencode/verify.d/99-footer-opencode.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "c8f8141db983c06038acfdfa0b2ab0cb3fbf06300efcfc3693b79520a6662e1b",
+      "size": 469
+    },
+    "box/harnesses/opencode/version-opencode.env": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "593a227c168120db52d5f090839139054e390f8f795d756f788698e54ae8c22d",
+      "size": 630
+    },
+    "box/lib/auth-ops.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "4b5cfc5edd49c6213f424cdc6141fae0d5d22ac5cb256ec3e7714f96c208a8f0",
+      "size": 74767
+    },
+    "box/lib/auth-store.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "bd414d6efda0903bd70d4f76d06a31cca08c842adab8f803c4510721f0d50a73",
+      "size": 17533
+    },
+    "box/lib/auth.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "9c920a78779cc88af304e4ad7c4fb3bc9b7adb8631828afd1462f445be50f0a6",
+      "size": 50719
+    },
+    "box/lib/build.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "69eab800457829a0c895e4bab1924a4856bbf49213f7cfe2dcbb6af344a6ad6e",
+      "size": 7247
+    },
+    "box/lib/config-file.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "eb54f02a7ef518e4ee07ab78afc05f59f68c6fa54c458d350cf0cec2b279536b",
+      "size": 6313
+    },
+    "box/lib/config.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "79e20e0e6ed63f9e04f985f3fc771fecb8d6d9beab8b66d61ab91a9bba797627",
+      "size": 2297
+    },
+    "box/lib/docker.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "685a83b4de0e853be0f092be14a8eca6aa45c3b5f1ab901cd819ffa9e4ba9a08",
+      "size": 19051
+    },
+    "box/lib/host-fs.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "9376a33022af6bed7e091df143ceb78a53238116086d4dda92e4fed9094448cb",
+      "size": 11926
+    },
+    "box/lib/host-locks.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "b7f0bf82f455ee7f65d8e0a3f84523a77c852b8d258680159661429977608d34",
+      "size": 5021
+    },
+    "box/lib/install.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "8b71ef6a7ff43c2a8d8d03528ec00295f84049b21cf2b05ad88e51ec093d81b0",
+      "size": 6191
+    },
+    "box/lib/launcher.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "dffb38cae8a3bff22e1ef5a6f00b68d1b4948e7192256ff90fd2f799cbb6a009",
+      "size": 23773
+    },
+    "box/lib/pins.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "587dd313bd241a8821b58081b05e4948bd79090302ecec45aac704ed7dd81b94",
+      "size": 15215
+    },
+    "box/lib/preflight.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "bd0e2c7ef2c6cab34ff862fd9a3133f1899129d4dbf1e31da297626f425b7687",
+      "size": 26735
+    },
+    "box/lib/project-links.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "be95af80587167494fc473c42ded44408f773022c5a33ccc5ff495998170246f",
+      "size": 4997
+    },
+    "box/lib/run.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "5bdbe50673d5fb23b44d44988f2df58d0bf58129846d491aa1c1cf41cd6cd2d7",
+      "size": 14955
+    },
+    "box/lib/state-inventory.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "dd73f0aaeaf44b6271a0d64a88e3d7c4720d445b638bd7802a5e7fb730616279",
+      "size": 7334
+    },
+    "box/lib/state-members.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "b48e125d943d2a4aed2212169153eda1d034f385d0c5f90201648173e583ecfd",
+      "size": 3826
+    },
+    "box/lib/state-transaction.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "951e76e117d4d69fccfe81a2e7745577ed3f22f1e94ba0ec092eaac3394f21d2",
+      "size": 8567
+    },
+    "box/lib/state.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "fa880283c4371293d3d6d9b723f1556e66d85196569895496797c7be91ffd31f",
+      "size": 16508
+    },
+    "box/lib/supervisor-process.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "63360fdb9b7f7f021f587c764585200b809c5d929f6f80686a3503102642c1a6",
+      "size": 2861
+    },
+    "box/lib/supervisor.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "3cee75f421086e3485c77db6415da2ac4d22245b265aff76ae642fc1bbb36a78",
+      "size": 8328
+    },
+    "box/lib/test-state.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "206fa48b577ed5f73d5238d0e3dd70fb49642cc0b29deea66e6c3d49147d4bd5",
+      "size": 19079
+    },
+    "box/lib/tools.sh": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "68d13a2cbc3fd1524a3b71460f42a7af934fc1e1baedbebb687bb35c994118ba",
+      "size": 27445
+    },
+    "box/regen-validation.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "7efc702d6f696188207c314ac03750bbbae87e13682723583546307f841d5d29",
+      "size": 243
+    },
+    "box/setup.sh": {
+      "kind": "file",
+      "mode": "0o700",
+      "sha256": "c2c6897792a2924bcdab6576f2a47a42eddd22fe6fe71fdd750fcac2b2acb9e5",
+      "size": 24179
+    },
+    "box/sync-pins.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "f04cfb4082af1d3f3ae78797be97e110fcc1969aaf686b639d2dd4b4263d9458",
+      "size": 391
+    },
+    "box/tests/bats-live/network.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "436f4ebd7764015e198d80cb0beab2128a2574656512f3c3a4144d5b1312bb64",
+      "size": 1531
+    },
+    "box/tests/bats-live/setup-concurrent.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "1d708437f385646de63dff95f09e974a158c1e21d4e738413abc4e80db1bb6c9",
+      "size": 1346
+    },
+    "box/tests/bats/arg-parse.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "4f486c1ecffd21e52eaa8d39ca64a9d483935f53fbe1aec6d9a3e12cb6cf657a",
+      "size": 3661
+    },
+    "box/tests/bats/audit.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "36e0cffc996aafd7df4261a4dd096f902e9eaf1b8242180aac08512b448d510b",
+      "size": 20850
+    },
+    "box/tests/bats/auth-adapters.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "c99e2104046352d1ad5a3ad2cf37ff82a56eb1d6382c14f221f8f87a56bdf0c1",
+      "size": 24525
+    },
+    "box/tests/bats/auth-lifecycle.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "3f9e26ad6bd142ca215d3a2813f334584ded83aef9e98d9195ab68d6a2cf09ac",
+      "size": 20312
+    },
+    "box/tests/bats/auth-migration.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "e9bc5585149fc8aecc556ee98a203538c0d75bba700b839bfb0c685cad8c2ecb",
+      "size": 12064
+    },
+    "box/tests/bats/auth-policy.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "c8351efb49d7b98210e63443fb3b46ee133fdecbbc06b11ae8328326bac0bb74",
+      "size": 9170
+    },
+    "box/tests/bats/auth-store.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "ad683b3dd54f5aacc046b657551a9a8e4f9bf73c1f8fd8f573c829395f537876",
+      "size": 320
+    },
+    "box/tests/bats/auth-volume.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "cf58a66dbc115b6dc204781450f1511504713d553641d6b7c5fb93ea9010d62c",
+      "size": 6006
+    },
+    "box/tests/bats/auto-runtime.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a8bf0fce73708d333060c25e5d44596a39bbee23ea7bf01f8abfdc695c7d0660",
+      "size": 10351
+    },
+    "box/tests/bats/baseline.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "d4f149d6b047add1e422531b1b7c6ff8498abda3afb01f64ea8e148390cdd25f",
+      "size": 7989
+    },
+    "box/tests/bats/cancellation.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "4351ba9e070c0ee63065c41ea1bab5e1a99c398132f42295420648225b383012",
+      "size": 3188
+    },
+    "box/tests/bats/config-file.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "cf370e6980cc0db34bff6abd43fd4b87e977363dd96c73716c1d691e3d51a1ab",
+      "size": 3285
+    },
+    "box/tests/bats/config-linkage.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "f2dacc16472a7d4e805347a3ebad7dd4b210ee559d8f44450616541d44e27bc8",
+      "size": 27489
+    },
+    "box/tests/bats/config.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "b14d24db3de5e2e0c732f855dc875c6c15da1c3d8673476a0ff7ef0700d5e86d",
+      "size": 7152
+    },
+    "box/tests/bats/creds.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "2c11e5c103b2f57d0651962a66436b6528ba29655f7cfcd96dbd93e431dc57e0",
+      "size": 5372
+    },
+    "box/tests/bats/disposable-storage.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "cd14dee36c56b9607bbc085b3d53264f61083d78b41bde1d9f717e014a2d9efc",
+      "size": 498
+    },
+    "box/tests/bats/extra-gids.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "333148687fcf90af80622bc4b531f9f50189ba4b8523dc97c67d6bf4df3262e4",
+      "size": 1647
+    },
+    "box/tests/bats/gen-pins.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "898cac42428c54e70ac5d6e8f3ef37b1cc5428d4eda324332ee680e05c2b5fd5",
+      "size": 1797
+    },
+    "box/tests/bats/gen-verify.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "cf937cc09c4973c1f62f16a6e3e0a0e93b601d668c455c483bf7823805507ff3",
+      "size": 6858
+    },
+    "box/tests/bats/helpers.bash": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "0ef4d7cc1cce742c4e0303c530a754a74b4f6a1433af8197d22358ab98ed3002",
+      "size": 6815
+    },
+    "box/tests/bats/host-fs.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "ab5a37131665d80e91fa3ee9ed7572d1588af91d9436faf0a86a66683fef1c46",
+      "size": 272
+    },
+    "box/tests/bats/host-locks.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "390d7e37eaadef1b06279da6e17d7269c7c5cb3037655f513d9b31d12e2bdfd3",
+      "size": 223
+    },
+    "box/tests/bats/launchers.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d477b695dc9767933357450da3cc21ebff84108ae5ca83bfe6d34acf31832601",
+      "size": 20585
+    },
+    "box/tests/bats/live-defaults.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "b3679607e2311e82f43f34ab0817add1dfbaa71a4a7060bbd58d927585501c35",
+      "size": 12064
+    },
+    "box/tests/bats/make-inputs.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "a946e9b219fda6a9261216358f4eb3486d9657ba4a841680978133bb8772333f",
+      "size": 2794
+    },
+    "box/tests/bats/makefile.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d66f5ebe1afeb8ee60923f37983b044e965ed1274cce906fdba63956aa06161a",
+      "size": 6669
+    },
+    "box/tests/bats/native-provenance.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "9f510dada8be2383caede6db87214cbee46558e1e63e96636cd727eb52dfc420",
+      "size": 5973
+    },
+    "box/tests/bats/opencode-capture.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "8dafeb86a062e96680c953ac983c70929224c37cbe6736a741122f5bd90f044d",
+      "size": 7211
+    },
+    "box/tests/bats/opencode-v2.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "0e0e1d6df84ed03615cf1c9543840d5e45c17e31a1bb9e2a5284fe83ca20e60b",
+      "size": 13323
+    },
+    "box/tests/bats/pins.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a227c27fbf651d7183d05da397b561a033b50ff11b9419bc36c89772c69f847f",
+      "size": 3768
+    },
+    "box/tests/bats/preflight.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "80e1d41e6206212573f204878b8effb57832a873a2ede8c158c6a7222b83910f",
+      "size": 10289
+    },
+    "box/tests/bats/qualification-workflow.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "6780dc84961913e2144d20362af906bfb7050a77ab969c7287399b74eb7c316e",
+      "size": 3062
+    },
+    "box/tests/bats/resource-audit.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "2dfab5a706cc5584b4f7eb4e85764eda96ce40c47c17661fa24add8c26d5bde3",
+      "size": 375
+    },
+    "box/tests/bats/run.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "4db57337d5c9a75b2662c741329f18e45eefdc576b3fad44aae3a1d735fc64cc",
+      "size": 13929
+    },
+    "box/tests/bats/setup.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "2e189d5004b3a17c5a1122be7e0649916f62a77c5e67b6f4eb67549082478bfa",
+      "size": 10004
+    },
+    "box/tests/bats/split.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "97e1a62f080e9fc28af87a71ac2e6c63f7f91f74cc82f94db8421db04399a56b",
+      "size": 8966
+    },
+    "box/tests/bats/state-removal.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "6fe3d5424993bd0f7ed529ab0a725d5d593ee4dc67271a737592d69dfb85eee6",
+      "size": 13260
+    },
+    "box/tests/bats/state.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "798bc330f4c7e27e6c25b667fd8058eb2e6604baf3b1324d5ca944bb6e6756a7",
+      "size": 4525
+    },
+    "box/tests/bats/supervisor-process.bats": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "fcf8e5d258b186be910c7b50e477dc2f033ba3cddb5eeeaa64a8ec4e2f801f47",
+      "size": 3956
+    },
+    "box/tests/bats/sync-pins.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a9e09d3fa48ab6b84b68255336d8fc721c33c966086e442078603bf43568b25d",
+      "size": 8397
+    },
+    "box/tests/bats/test-state.bats": {
+      "kind": "file",
+      "mode": "0o600",
+      "sha256": "58b6738555db1863b51451b62b102c7175e291bb87ddbd0a8b85424815518151",
+      "size": 10683
+    },
+    "box/tests/bats/tools.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "28665544982ff051a04c536a565732f8371e9310e02cea3ffcbc30a7e8f2b79d",
+      "size": 8384
+    },
+    "box/tests/bats/update.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d39881b513c875d9346636394b6a895494b33718874e75604f11f449a9175dc7",
+      "size": 15844
+    },
+    "box/tests/bats/version.bats": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "a32650ced081563ce929a706d96cd5cb4241c35acc77e0b11f2c3a765adb18b0",
+      "size": 7473
+    },
+    "box/tests/native/acceptance.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "3d591f2ff996f7d78b8e25459f06768b71478e2599de87ad0741cf56e1318ae0",
+      "size": 20463
+    },
+    "box/tests/native/auth-lifecycle.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "596c8bb51aa423341eb757af6dc9631379c61146ad7b6057c152b304eb83978c",
+      "size": 25330
+    },
+    "box/tests/native/auth-store-test.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "8db3c5da5e6c266dc83fd671a713d5e195d3263724c2bb5a04cbc1195980a480",
+      "size": 17355
+    },
+    "box/tests/native/ci-qualification.sh": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "c9970624a7708a2ce7c605e02bfd282034e0eae282a5deaaeeefe3c0c2cf2bfc",
+      "size": 7011
+    },
+    "box/tests/native/codex-auth-fixture.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "6a50b74d639a71780e04d816153e7d85007372ac717e79f080b4ac3ce4c352ef",
+      "size": 12102
+    },
+    "box/tests/native/disposable-storage-test.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "3e06bd751cee988af0162256420f96f5c86ca545c57bfc84111a73405f0dd17c",
+      "size": 3584
+    },
+    "box/tests/native/disposable-storage.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "7949dace40f9220a954b7600f11df8eecd95ccf7e05591a6c7189aff151cf958",
+      "size": 7275
+    },
+    "box/tests/native/host-fs-test.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "d3064f3891b41518da5e60e71173eb5c099baca39e9453147ada998e7417fb5e",
+      "size": 9592
+    },
+    "box/tests/native/host-locks-test.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "1afdf4ed8aa56421bf2bb85fb0df4ad9a5fc88870e98f91021fc9287d22b08ac",
+      "size": 6532
+    },
+    "box/tests/native/lifecycle-audit.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "c74866fd319691dcc6145f4dc03cffef27eb08576bac982b154c75e1714ba9d0",
+      "size": 10416
+    },
+    "box/tests/native/muse-auth-fixture.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "8ebb872875548383a7ad27775df10c80595deb49e6686515f73b95fe64ddedfc",
+      "size": 5294
+    },
+    "box/tests/native/network-observations.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "9c0b2d445ade88b7c2d61c0dd64c7ee183eb3cae8d0407acbf9487d8c10e94dd",
+      "size": 6383
+    },
+    "box/tests/native/opencode-auth-fixture.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "6a7e435b63e6ed8d69226d7f0a16c1eb9dc1f32c6ea00ef86904370c3cbde416",
+      "size": 12919
+    },
+    "box/tests/native/opencode-state.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "f7f9579dd436df79262219624caa33fb9b3a36db8e8f1041d7bb7a4d2ae1e420",
+      "size": 1816
+    },
+    "box/tests/native/probe-races.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "cf711661e627730daeddb0f65d4a9671d09200b2182699d2107a0e198d03220f",
+      "size": 5295
+    },
+    "box/tests/native/qualify-exhaustion.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "e286fa5d0aee6003b9a0c2e8047b11b3d4315e1d034e9744d47d845b0eeb1870",
+      "size": 4525
+    },
+    "box/tests/native/qualify-ext4.sh": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "6ffcb806bb44ab93a656e5a4ff8825d90bb5bc25147bd9a28e9ad54b668cc2ca",
+      "size": 2429
+    },
+    "box/tests/native/resource-audit-test.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "8005d8f784a35179b4ddcca1e96c3284f75c8361ca1471097a7bb6be94a70972",
+      "size": 2512
+    },
+    "box/tests/native/resource-audit.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "b115404a52e2689cdd17c2f0c7a361e3bffa20472183a97a33fb1655946ddf91",
+      "size": 7842
+    },
+    "box/tests/native/scratch-workloads.py": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d94c3b21221ff8b0c3f196e2db0df4eb9ab8bac574e2e15229dc1340d7199025",
+      "size": 7759
+    },
+    "box/update-pins.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "f5d63eefa64974f6c5077b891a9e9b955f2d899bdb066553c6e70cd8a45747a3",
+      "size": 14918
+    },
+    "box/verify-codex.sh": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "50b914ae8f57e5a8b710e50fde6c71ab6b391f641b35d3b550ce2ecbcd8b9da8",
+      "size": 27637
+    },
+    "box/verify-muse.sh": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "a606fcb9a9329544a7c4a1db344b49e2dc77f2b3478cd1064e09a4e4945dcb8f",
+      "size": 20933
+    },
+    "box/verify-opencode.sh": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "3a46aff16f712657debf61e205e414db8a7fefca6668d095134fd6e20992d0e1",
+      "size": 20805
+    },
+    "box/verify.d/10-workspace.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "510d08be2f43ad393df16772ff31a69d60d78a473391528ce7161eeea7538c6f",
+      "size": 1089
+    },
+    "box/verify.d/20-toolchain.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "915a557d58c099e4fefaa8408ad6b73e498bc06b82cce899a8fc179cfb4ad053",
+      "size": 4623
+    },
+    "box/verify.d/50-containment.sh": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "aa19c1dc58550959d8265d95d5d889ee80089827fd9b9e0f82d59a7cfc1cecaa",
+      "size": 6258
+    },
+    "specs/capture-baseline.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "99148b0c25a89446100944b7f1b212e7298ed0a90159afec8b20fd9aff768e40",
+      "size": 4779
+    },
+    "specs/compare-baselines.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "ce4aed76d3a60ff6e857fba2a581cd4f859553c7300e3b9705f3c3a10b0180bd",
+      "size": 5544
+    },
+    "specs/granular-issues.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "6af10e1c0963ed63cf690d80a52bcd304a71d67b2ca6be8b6d17189e01126776",
+      "size": 19868
+    },
+    "specs/implementation-progress.md": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "d2b2854079e42ce02e2ab9657db2707b0152f9784e6f30cd47be8b5363de9750",
+      "size": 45838
+    },
+    "specs/native-qualification-2026-10-08.json": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "f5f30526614317032567a6df3f46afe5cea2c1c2e843a1e352e48881c5c73da9",
+      "size": 3284
+    },
+    "specs/passes/pass-1.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "22456a65c6f55bd3386ace0af2e77e532003e0de3178561e23484567e10805f3",
+      "size": 68715
+    },
+    "specs/passes/pass-2.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "af4042e35dc9919c7de83a3267c18a78480992ca7b5aca4f2bc2a83f9fc2f23e",
+      "size": 4334
+    },
+    "specs/passes/pass-3.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "c4749cef901b17ab235705fd065c227da9b0eced6e75dd3f6193f01ff40cc1b4",
+      "size": 138598
+    },
+    "specs/passes/plan.md": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "54acd88905ba1566e9c46f8a2781d555e0f1167df6536e2a0e1dfebca32db5cb",
+      "size": 61828
+    },
+    "specs/plan.md": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "54acd88905ba1566e9c46f8a2781d555e0f1167df6536e2a0e1dfebca32db5cb",
+      "size": 61828
+    },
+    "specs/qualify-host-filesystem.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "5d63c25bc4ede9a0b462cf05bb4d034d4ae1bb82b53b5b2b48d2fd15b6f74a22",
+      "size": 5868
+    },
+    "specs/test-qualify-host-filesystem.py": {
+      "kind": "file",
+      "mode": "0o644",
+      "sha256": "0d0c8073d768eb56979b4748e34c220b57439902b9f452f69591faa05ef9544f",
+      "size": 2834
+    },
+    "todo.md": {
+      "kind": "file",
+      "mode": "0o664",
+      "sha256": "d4c0ff14427b1b025134be310dd08846a17b1a5e1cf929acfcbb443a5c66f2c5",
+      "size": 121315
+    }
+  },
+  "root": "/workspace",
+  "schema": 1,
+  "scope": "source inventory only; not runtime, native, account, durability or CI acceptance",
+  "source_manifest_sha256": "91fe714acc8daaf96e12ef522b8b999fe0ce83339dfbbe37f9a72adee97e767c",
+  "status_porcelain_v1_nul": " M .github/workflows/verify.yml\u0000 M .gitignore\u0000 M box/.dockerignore\u0000 M box/Dockerfile\u0000 M box/Makefile\u0000 M box/README.md\u0000 M box/box-c\u0000 M box/box-m\u0000 M box/box-m-login\u0000 M box/box-o\u0000 M box/check-pins.sh\u0000 M box/docs/acceptance.md\u0000 M box/docs/adding-a-tool.md\u0000 M box/docs/architecture.md\u0000 M box/docs/harnesses.md\u0000 M box/docs/operations.md\u0000 M box/docs/security-resource-audit.md\u0000 M box/docs/troubleshooting.md\u0000 M box/docs/upgrades.md\u0000 M box/gen-verify.sh\u0000 M box/harnesses/codex/README.md\u0000 M box/harnesses/codex/launch.sh\u0000 M box/harnesses/codex/verify.d/40-readiness-codex.sh\u0000 M box/harnesses/muse/README.md\u0000 M box/harnesses/muse/install.sh\u0000 M box/harnesses/muse/launch.sh\u0000 M box/harnesses/muse/verify.d/40-readiness-muse.sh\u0000 M box/harnesses/opencode/README.md\u0000 M box/harnesses/opencode/capture-validation.sh\u0000 M box/harnesses/opencode/entrypoint.sh\u0000 M box/harnesses/opencode/launch.sh\u0000 M box/harnesses/opencode/verify.d/40-readiness-opencode.sh\u0000 M box/lib/docker.sh\u0000 M box/lib/install.sh\u0000 M box/lib/launcher.sh\u0000 M box/lib/preflight.sh\u0000 M box/lib/run.sh\u0000 M box/lib/test-state.sh\u0000 M box/lib/tools.sh\u0000 M box/setup.sh\u0000 M box/tests/bats/audit.bats\u0000 M box/tests/bats/auto-runtime.bats\u0000 M box/tests/bats/config-linkage.bats\u0000 M box/tests/bats/gen-verify.bats\u0000 M box/tests/bats/helpers.bash\u0000 M box/tests/bats/launchers.bats\u0000 M box/tests/bats/live-defaults.bats\u0000 M box/tests/bats/opencode-capture.bats\u0000 M box/tests/bats/opencode-v2.bats\u0000 M box/tests/bats/preflight.bats\u0000 M box/tests/bats/run.bats\u0000 M box/tests/bats/setup.bats\u0000 M box/tests/bats/sync-pins.bats\u0000 M box/tests/bats/test-state.bats\u0000 M box/tests/bats/tools.bats\u0000 M box/tests/native/acceptance.sh\u0000 M box/tests/native/lifecycle-audit.py\u0000 M box/verify-codex.sh\u0000 M box/verify-muse.sh\u0000 M box/verify-opencode.sh\u0000?? .agents/skills/prefine/SKILL.md\u0000?? .github/workflows/qualify-disposable.yml\u0000?? .github/workflows/qualify-native.yml\u0000?? box/harnesses/codex/auth.sh\u0000?? box/harnesses/muse/auth.sh\u0000?? box/harnesses/opencode/auth-state.py\u0000?? box/harnesses/opencode/auth-volume.py\u0000?? box/harnesses/opencode/auth.sh\u0000?? box/lib/auth-ops.sh\u0000?? box/lib/auth-store.py\u0000?? box/lib/auth.sh\u0000?? box/lib/host-fs.py\u0000?? box/lib/host-locks.py\u0000?? box/lib/project-links.py\u0000?? box/lib/state-inventory.py\u0000?? box/lib/state-members.py\u0000?? box/lib/state-transaction.py\u0000?? box/lib/state.sh\u0000?? box/lib/supervisor-process.py\u0000?? box/lib/supervisor.sh\u0000?? box/tests/bats/auth-adapters.bats\u0000?? box/tests/bats/auth-lifecycle.bats\u0000?? box/tests/bats/auth-migration.bats\u0000?? box/tests/bats/auth-policy.bats\u0000?? box/tests/bats/auth-store.bats\u0000?? box/tests/bats/auth-volume.bats\u0000?? box/tests/bats/baseline.bats\u0000?? box/tests/bats/disposable-storage.bats\u0000?? box/tests/bats/host-fs.bats\u0000?? box/tests/bats/host-locks.bats\u0000?? box/tests/bats/make-inputs.bats\u0000?? box/tests/bats/native-provenance.bats\u0000?? box/tests/bats/qualification-workflow.bats\u0000?? box/tests/bats/state-removal.bats\u0000?? box/tests/bats/state.bats\u0000?? box/tests/bats/supervisor-process.bats\u0000?? box/tests/native/auth-lifecycle.py\u0000?? box/tests/native/auth-store-test.py\u0000?? box/tests/native/ci-qualification.sh\u0000?? box/tests/native/codex-auth-fixture.py\u0000?? box/tests/native/disposable-storage-test.py\u0000?? box/tests/native/disposable-storage.py\u0000?? box/tests/native/host-fs-test.py\u0000?? box/tests/native/host-locks-test.py\u0000?? box/tests/native/muse-auth-fixture.py\u0000?? box/tests/native/network-observations.py\u0000?? box/tests/native/opencode-auth-fixture.py\u0000?? box/tests/native/qualify-exhaustion.py\u0000?? box/tests/native/qualify-ext4.sh\u0000?? specs/capture-baseline.py\u0000?? specs/compare-baselines.py\u0000?? specs/granular-issues.md\u0000?? specs/implementation-progress.md\u0000?? specs/native-qualification-2026-10-08.json\u0000?? specs/passes/pass-1.md\u0000?? specs/passes/pass-2.md\u0000?? specs/passes/pass-3.md\u0000?? specs/passes/plan.md\u0000?? specs/plan.md\u0000?? specs/qualify-host-filesystem.py\u0000?? specs/test-qualify-host-filesystem.py\u0000?? todo.md\u0000",
+  "tools": {
+    "bash": "/usr/bin/bash",
+    "bats": null,
+    "docker": null,
+    "jq": "/usr/bin/jq",
+    "make": "/usr/bin/make",
+    "python3": "/usr/bin/python3",
+    "runsc": null,
+    "shellcheck": null
+  },
+  "unqualified": [
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q06",
+    "ARM64",
+    "CI"
+  ]
+}

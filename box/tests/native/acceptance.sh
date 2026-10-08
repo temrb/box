@@ -26,7 +26,7 @@ fi
 # Keep caller overrides and identity out of disposable fixture state.
 for id in $box_tool_ids; do
   prefix=$(box_tool_field "$id" git_prefix)
-  for suffix in CONFIG VERSION_FILE ENV_FILE IMAGE EXTRA_GIDS; do unset "${prefix}_$suffix"; done
+  for suffix in CONFIG VERSION_FILE ENV_FILE IMAGE EXTRA_GIDS AUTH_SCOPE; do unset "${prefix}_$suffix"; done
   printf -v "${prefix}_GIT_NAME" '%s' 'Acceptance Fixture'
   printf -v "${prefix}_GIT_EMAIL" '%s' 'fixture@example.invalid'
   export "${prefix}_GIT_NAME" "${prefix}_GIT_EMAIL"
@@ -34,9 +34,11 @@ for id in $box_tool_ids; do
     for override in $(box_state_field "$id" "$state" override); do unset "$override"; done
   done
 done
+unset BOX_AUTH_SCOPE BOX_AUTH_ROOT BOX_STATE_CONFIG BOX_AUTH_TRANSITION BOX_TEST_PROJECT_HASH
 host_uid=$(id -u); host_gid=$(id -g)
 ((host_uid > 0 && host_gid > 0)) || die 'Run acceptance as your normal user.'
-task_root=$(mktemp -d "$HOME/.box-native.XXXXXX")
+command -v docker >/dev/null 2>&1 || die 'Docker CLI/Engine required for native acceptance.'
+task_root=$(mktemp -d "${BOX_TEST_PROJECT_ROOT:-$HOME}/.box-native.XXXXXX")
 test_home="$task_root/home"
 mkdir -m 700 "$test_home"
 # Phase-S disposable test namespace (specs/plan.md §0 B0): every launcher
@@ -119,6 +121,33 @@ for id in $box_tool_ids; do
 done
 cd "$project"
 unmet=0
+# Auth-scope identity matrix (account-independent): both scopes resolve
+# through installed launchers without contacting Docker or reading
+# credentials. Global auth is project-independent (same canonical dir from
+# two projects); project auth isolates them. Runs before any container
+# starts so a resolver regression fails fast.
+check_auth_matrix() {
+  local id dir_global_a dir_global_b dir_proj_a dir_proj_b second_project
+  second_project="$task_root/second-identity-project"
+  mkdir -m 700 "$second_project"
+  for id in $box_tool_ids; do
+    dir_global_a=$(cd "$project" && env HOME="$test_home" BOX_AUTH_SCOPE=global "$test_home/.local/bin/$(box_tool_field "$id" launcher)" --dry-run 2>/dev/null | awk -F': ' '/^Canonical auth directory/{print $2}') || return 1
+    dir_global_b=$(cd "$second_project" && env HOME="$test_home" BOX_AUTH_SCOPE=global "$test_home/.local/bin/$(box_tool_field "$id" launcher)" --dry-run 2>/dev/null | awk -F': ' '/^Canonical auth directory/{print $2}') || return 1
+    [[ -n "$dir_global_a" && "$dir_global_a" == "$dir_global_b" ]] || return 1
+    dir_proj_a=$(cd "$project" && env HOME="$test_home" BOX_AUTH_SCOPE=project "$test_home/.local/bin/$(box_tool_field "$id" launcher)" --dry-run 2>/dev/null | awk -F': ' '/^Canonical auth directory/{print $2}') || return 1
+    dir_proj_b=$(cd "$second_project" && env HOME="$test_home" BOX_AUTH_SCOPE=project "$test_home/.local/bin/$(box_tool_field "$id" launcher)" --dry-run 2>/dev/null | awk -F': ' '/^Canonical auth directory/{print $2}') || return 1
+    [[ -n "$dir_proj_a" && -n "$dir_proj_b" && "$dir_proj_a" != "$dir_proj_b" ]] || return 1
+    [[ "$dir_global_a" != "$dir_proj_a" ]] || return 1
+    printf 'PASS: %s auth identity (global shared, project isolated, scopes distinct)\n' "$id"
+  done
+}
+check_auth_matrix || unmet=1
+# Exercise supervised mutations and logout under every scope/runtime.
+if ((focused)); then
+  python3 -I "$bundle_dir/tests/native/auth-lifecycle.py" --only opencode || unmet=1
+else
+  python3 -I "$bundle_dir/tests/native/auth-lifecycle.py" || unmet=1
+fi
 # Production launcher checks, separate from account-dependent generated readiness.
 check_opencode() {
   local flag=$1 iteration second second_ns legacy second_volume
@@ -231,9 +260,7 @@ for runtime in runsc runc; do
       else printf 'UNMET: muse/%s native echo startup\n' "$runtime"; unmet=1; fi
     fi
     # Check shared containment independently when full native readiness lacks auth.
-    cat "$bundle_dir/harnesses/$id/verify.d/00-header-$id.sh" \
-      "$bundle_dir/verify.d/10-workspace.sh" "$bundle_dir/verify.d/20-toolchain.sh" \
-      "$bundle_dir/verify.d/50-containment.sh" >"$task_root/containment.sh"
+    bash -p "$bundle_dir/gen-verify.sh" --containment "$id" >"$task_root/containment.sh"
     if env HOME="$test_home" "$launcher" "$runtime_flag" --shell -s -- README.md \
         <"$task_root/containment.sh" >"$task_root/containment.log" 2>&1; then
       printf 'PASS: %s/%s shared containment (native readiness separate)\n' "$id" "$runtime"

@@ -361,3 +361,17 @@ EOF
   run box_image_tag_for_version muse "" 1000 1000
   [ "$status" -ne 0 ]
 }
+
+@test "wrapper cancellation gives native EXIT collection a bounded stop grace" {
+  stop_log="$TEST_TMP/stop-arguments"
+  docker() { printf '%s\n' "$*" > "$stop_log"; }
+  timeout() { [ "$1" = --kill-after=2 ] && [ "$2" = 20 ] || return 1; shift 2; "$@"; }
+  docker_cmd=(docker)
+  container=exact-owned-fixture
+  sleep 20 &
+  child=$!
+  run box_interrupt_client TERM 143 "$child"
+  [ "$status" -eq 143 ]
+  [ "$(cat "$stop_log")" = 'stop --time 15 exact-owned-fixture' ]
+  wait "$child" 2>/dev/null || true
+}

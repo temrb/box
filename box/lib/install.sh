@@ -95,3 +95,30 @@ box_install_provider_file() {
     printf 'kept'
   fi
 }
+
+# Seed the versioned state-policy file with no explicit scope settings.
+# Reruns preserve it byte-for-byte and never migrate login material.
+# Setup installs the interface; scope stays configurable at runtime and
+# durably through user configuration. Prints created|kept.
+# Usage: box_install_state_policy [path]  (default $HOME/.config/box/state.toml)
+box_install_state_policy() {
+  local dest=${1:-$HOME/.config/box/state.toml}
+  [[ ! -L "$dest" ]] || die "Refusing to follow symlink: $dest"
+  if [[ ! -e "$dest" ]]; then
+    [[ -d "$(dirname -- "$dest")" ]] || die "Missing state-policy parent: $(dirname -- "$dest")"
+    (
+      local stage
+      stage=$(mktemp "${dest%/*}/.state-policy.XXXXXX") || die 'Cannot stage state policy.'
+      trap 'rm -f -- "$stage"' EXIT
+      printf 'schema_version = 1\n' >"$stage" || die 'Cannot stage state policy.'
+      chmod 600 -- "$stage" || die 'Cannot secure state policy.'
+      ln -T -- "$stage" "$dest" || die 'Cannot exclusively install state policy.'
+    ) || return 1
+    printf 'created'
+  else
+    [[ -f "$dest" ]] || die 'State policy must be a regular file.'
+    [[ "$(stat -c %u -- "$dest")" == "$host_uid" ]] || die 'State policy must be owned by you.'
+    case "$(stat -c %a -- "$dest")" in 600|400) : ;; *) die 'State policy must be mode 600 (400 also accepted).' ;; esac
+    printf 'kept'
+  fi
+}

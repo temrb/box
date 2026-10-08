@@ -266,6 +266,15 @@ box_preflight_git() (
   done || die 'Cannot inspect project Git metadata.'
 )
 
+# Count each regular inode in the physical tree; external links expose host
+# bytes through the writable project mount. The helper uses directory FDs,
+# does not read file contents, and refuses unreadable or changing inventories.
+box_preflight_hardlinks() {
+  command -v python3 >/dev/null || die 'Python 3 is required for project hardlink inspection.'
+  python3 -I "$_BOX_PREFLIGHT_DIR/project-links.py" "$project" \
+    || die 'Cannot safely mount project with unqualified hardlinks.'
+}
+
 # Closed denylist + $HOME/credential-dir + IPC + symlink + git-worktree preflight.
 # Thin ordering wrapper over the per-concern steps above (each step is also
 # unit-testable on its own). Reads globals: project, HOME, host_uid, host_gid.
@@ -283,6 +292,7 @@ box_preflight_project() {
   box_preflight_tool_dirs
   box_preflight_ipc
   box_preflight_symlinks
+  box_preflight_hardlinks
   box_preflight_git
 }
 

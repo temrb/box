@@ -69,10 +69,11 @@ ARG MUSE_SHA256_ARM64
 LABEL org.meta.muse.box.version=${MUSE_VERSION} \
       org.meta.muse.box.sha256-amd64=${MUSE_SHA256_AMD64} \
       org.meta.muse.box.sha256-arm64=${MUSE_SHA256_ARM64} \
-      org.box.tool=muse
+      org.box.tool=muse \
+      org.box.auth-contract=3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bubblewrap libgcc-s1 libseccomp2 libstdc++6 \
+    bubblewrap libgcc-s1 libseccomp2 libstdc++6 python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Single documented HTTPS download (no fallback URL): any fallback host would
@@ -104,11 +105,19 @@ RUN mkdir -p /workspace /persist/data/muse /persist/state/muse \
     && chmod 700 /persist \
     && chown -R "$HOST_UID:$HOST_GID" /workspace /persist /home/box
 
+# Auth supervision: shared wrapper + Muse file adapter (host performs
+# install/collect on the native bind; the in-image copy keeps the contract
+# and version pinned with the image).
+COPY --chmod=644 lib/supervisor.sh /usr/local/bin/box-supervisor.sh
+COPY --chmod=644 lib/supervisor-process.py /usr/local/bin/box-supervisor-process.py
+COPY --chmod=644 harnesses/muse/auth.sh /usr/local/bin/box-auth-muse.sh
+
 # Base ENV/USER/WORKDIR are inherited; this stage sets deltas only
 # (XDG data/state split + auto-update opt-out). USER is re-asserted (not a
 # delta) because the install steps above ran as 0:0.
 ENV XDG_DATA_HOME=/persist/data/muse \
     XDG_STATE_HOME=/persist/state/muse \
+    TBH_CREDENTIAL_BACKEND=file \
     MUSE_NO_AUTO_UPDATE=1
 USER ${HOST_UID}:${HOST_GID}
 ENTRYPOINT ["/usr/local/bin/muse"]
@@ -136,7 +145,8 @@ ARG OPENCODE_SHA256_ARM64
 LABEL org.opencode.box.version=${OPENCODE_VERSION} \
       org.opencode.box.sha256-amd64=${OPENCODE_SHA256_AMD64} \
       org.opencode.box.sha256-arm64=${OPENCODE_SHA256_ARM64} \
-      org.box.tool=opencode
+      org.box.tool=opencode \
+      org.box.auth-contract=3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -169,6 +179,11 @@ RUN set -euo pipefail; \
     test "$installed_version" = "opencode v$OPENCODE_VERSION"
 
 COPY --chmod=755 harnesses/opencode/entrypoint.sh /usr/local/bin/box-opencode
+COPY --chmod=644 lib/supervisor.sh /usr/local/bin/box-supervisor.sh
+COPY --chmod=644 lib/supervisor-process.py /usr/local/bin/box-supervisor-process.py
+COPY --chmod=644 harnesses/opencode/auth.sh /usr/local/bin/box-auth-opencode.sh
+COPY --chmod=644 harnesses/opencode/auth-state.py /usr/local/bin/box-auth-state.py
+COPY --chmod=644 harnesses/opencode/auth-volume.py /usr/local/bin/box-auth-volume.py
 
 RUN : "${HOST_UID:?Pass --build-arg HOST_UID=<host uid>}" "${HOST_GID:?Pass --build-arg HOST_GID=<host gid>}"; \
     test "$HOST_UID" -gt 0 && test "$HOST_GID" -gt 0 \
@@ -202,7 +217,8 @@ ARG CODEX_SHA256_ARM64
 LABEL org.openai.codex.box.version=${CODEX_VERSION} \
       org.openai.codex.box.sha256-amd64=${CODEX_SHA256_AMD64} \
       org.openai.codex.box.sha256-arm64=${CODEX_SHA256_ARM64} \
-      org.box.tool=codex
+      org.box.tool=codex \
+      org.box.auth-contract=3
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 RUN set -euo pipefail; \
@@ -222,6 +238,9 @@ RUN set -euo pipefail; \
     ln -s /opt/codex/bin/codex /usr/local/bin/codex; \
     installed_version=$(codex --version); test "$installed_version" = "codex-cli $CODEX_VERSION"
 COPY harnesses/codex/policy/requirements.toml /etc/codex/requirements.toml
+COPY --chmod=644 lib/supervisor.sh /usr/local/bin/box-supervisor.sh
+COPY --chmod=644 lib/supervisor-process.py /usr/local/bin/box-supervisor-process.py
+COPY --chmod=644 harnesses/codex/auth.sh /usr/local/bin/box-auth-codex.sh
 RUN chown 0:0 /etc/codex/requirements.toml && chmod 644 /etc/codex/requirements.toml \
     && mkdir -p /persist/state/codex /home/box/.codex /home/box/.cache \
     && touch /persist/state/codex/.volume-seed \

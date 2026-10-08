@@ -196,6 +196,20 @@ printf '%s' "$effective_json" | jq -e --argjson expected "$_opencode_expected" '
   )
 ' >/dev/null || { echo 'FAIL: effective OpenCode v2 permissions differ' >&2; exit 1; }
 echo 'OpenCode native source inspection: PASS (permission enforcement and account model/resume evidence are separate)'
+
+# Auth-managed run: the selected canonical object is mounted read-write at
+# /run/box-auth (object dir only). The mixed SQLite database stays
+# project-scoped on /persist; only credential rows are projected in and out
+# by the entrypoint supervisor. Selection sidecars stay in project state.
+[[ -d /run/box-auth ]] || { echo 'FAIL: /run/box-auth is not mounted (auth-managed runs only)' >&2; exit 1; }
+jq -e --arg h opencode '.harness == $h and .schema_version == 1' -- /run/box-auth/identity.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth identity mismatch (expected opencode schema 1)' >&2; exit 1; }
+jq -e '.state == "active"' -- /run/box-auth/lease.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth lease is not active' >&2; exit 1; }
+jq -e 'type == "object" and .schema_version == 1 and .harness == "opencode" and (.tombstone | type == "boolean")' \
+  -- /run/box-auth/credentials.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth envelope is not a valid opencode envelope' >&2; exit 1; }
+echo 'OpenCode canonical auth mount + lease + envelope: PASS (values withheld)'
 echo "=== 5. Hardening & Host Containment Assertions ==="
 export LC_ALL=C
 # Defense-in-depth: the primary root gate lives in 00-header (N1, before any

@@ -93,6 +93,22 @@ Managed-policy changes require rebuilding the image; refreshing a host template
 alone does not change image-owned requirements (Codex; OpenCode v2 ships no
 image policy).
 
+### Auth-scope rollout
+
+Changing auth scope selects a different canonical identity; setup and policy
+changes never migrate login material. First live launch after upgrade refuses
+when legacy credentials exist without a completed migration record — run
+`make -C box state-plan` to inspect the selected identity, then `auth-migrate`
+(legacy → selected identity, journaled with rollback), `auth-copy` (explicit
+source → destination, no merge/overwrite), `auth-init` (fresh acknowledgment),
+or `auth-recover` (interrupted lease/projection). Scope changes need
+`BOX_AUTH_TRANSITION=fresh|use-existing` or explicit copy. Compatibility is
+explicit discovery/import support, not dual-write; removal of legacy paths
+never deletes remaining legacy credentials and requires recorded migration,
+resolved transactions, inventoried rollback copies, and an elapsed release
+window. Copied OAuth tokens may share refresh lineage: prefer fresh login for
+independent accounts.
+
 OpenCode v2 uses three SHA256 pins for standalone glibc archives; there is no
 Node/NodeSource contract. Debian upgrades update the single manifest
 list digest and `# pin-date:` in Dockerfile, regenerate the table, and rebuild
@@ -115,3 +131,10 @@ Check `"$HOME/.local/bin/box-o" --dry-run` and `--version`, then run
 Valid differing v2 pins remain preserved. Legacy project volumes are never reused:
 v2 uses `box-o-v2-u<uid>-g<gid>-<physical-path-hash>`. Review old state explicitly;
 there is no automatic credential or session import and no active v1 rollback path.
+
+Rebuild all selected images after the projection-phase handshake change; launchers
+require `org.box.auth-contract=3` even for image overrides. Auth-envelope schema
+and production volume/home identities are retained. Register historical native
+roots with `state-discover` before `state-remove FULL=1`; interrupted reset/full
+removal must complete before state is reused. Code-only uninstall is available
+as `make uninstall-code HARNESS=<id>`, with `EXECUTE=1` for execution.

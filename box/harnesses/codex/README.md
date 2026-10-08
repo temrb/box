@@ -29,8 +29,9 @@ Each physical project has two stores:
 
 | Store | Location | Consequence of removal |
 |---|---|---|
-| Native home | `$state_root/<hash>/codex-home`, mounted at `/home/box/.codex` | Settings, file auth, sessions, history, logs and native home state removed |
-| Named volume | `box-c-u<uid>-g<gid>-<hash>` at `/persist` | SQLite runtime state removed |
+| Native home (non-auth) | `$state_root/<hash>/codex-home`, mounted at `/home/box/.codex` | Settings, trust, sessions, history, logs and native home state removed (`auth.json` inside is a temporary projection only) |
+| Named volume (non-auth) | `box-c-u<uid>-g<gid>-<hash>` at `/persist` | SQLite runtime state removed |
+| Canonical auth object | `~/.config/box/auth/codex/...` (`BOX_AUTH_ROOT`), mounted at `/run/box-auth` | Selected auth identity (`project` default, or `global`); removed only by explicit exact-identity removal |
 
 `CODEX_HOME=/home/box/.codex`. Default state root is
 `~/.config/box-c/projects`; `BOX_C_STATE_ROOT` overrides it. The initial
@@ -47,7 +48,9 @@ box-c login --device-auth
 box-c login status
 ```
 
-Login is project-specific. Device login depends on account/workspace support.
+Login is scope-selected (`project` default, or `global` via `BOX_AUTH_SCOPE` /
+`BOX_C_AUTH_SCOPE` / `state.toml`). Device login depends on account/workspace
+support.
 Default browser callbacks at localhost cannot be promised without forwarding.
 If unavailable, authenticate with the same pin on your own trusted machine, stop both
 clients, and explicitly copy its `auth.json` into the exact project's protected
@@ -63,10 +66,14 @@ box-c login status
 
 Default ChatGPT runs do not forward that key. `BOX_C_AUTH=api` permits key
 forwarding for explicit API-oriented runs/shells; it does not itself perform
-login. Cached auth mode and provider-file contents are distinct. `box-c logout`
-removes native cached auth for this project; explicitly remove the provider-file
+login. Cached auth mode and provider-file contents are distinct. `box-c logout` updates the selected canonical auth identity for its scope
+(project auth differs per project; global auth is shared); explicitly remove
+the provider-file
 key too if it should no longer be available. Cache transfer/API mode persistence
-still need account-dependent acceptance evidence.
+still need account-dependent acceptance evidence. Auth scope changes need
+`BOX_AUTH_TRANSITION=fresh|use-existing` or explicit `auth-copy`; first launch
+after upgrade with legacy `auth.json` requires explicit `auth-migrate` or
+`auth-init` (see [operations §9a](../../docs/operations.md#9a-auth-scope-migration-and-lifecycle-tools)).
 
 Setup refreshes `~/.config/box-c/config.toml` with one `.bak`. Every launch mounts
 `BOX_C_CONFIG` or that installed default read-only at `/etc/codex/config.toml`.
@@ -80,10 +87,29 @@ state and does not read keys. No model turn is used by the
 bounded [native probe](native-probe.py); it checks loaded requirements,
 effective config, normalized thread policy, and conflicting native overrides.
 
-A complete project reset removes both stores after exact inventory and stopped
-containers. Removing only the volume retains auth/transcripts; removing only the
-home leaves SQLite state. Full uninstall must include overridden roots and both
-stores explicitly, as described in shared operations.
+A complete project reset removes both non-auth stores after exact inventory
+and stopped
+containers, plus the acknowledged project auth identity (unless
+`--keep-auth`); global auth is never removed by reset. Removing only the volume retains transcripts; removing only the
+home leaves SQLite state. Full uninstall must include overridden roots and
+exact auth identities explicitly, as described in shared operations.
 Pin update: see [upgrades §12](../../docs/upgrades.md) (`update-check` →
 `update` → `gen-verify.sh`/`gen-pins.sh` → `verify-static` + `pins` →
 `build-c` → `sync-pins-c`). Managed-policy rebuild requires an image rebuild.
+
+The managed file adapter supports the pinned `AuthDotJson` API-key shape
+(`OPENAI_API_KEY`) and ChatGPT OAuth shape (`tokens` containing `id_token`,
+`access_token`, `refresh_token`, optional `account_id`, plus optional
+`auth_mode`/`last_refresh`). Unknown fields, incomplete tokens and conflicting
+modes fail before replacing native auth. Agent identity, personal access tokens,
+Bedrock and additional MCP stores require separate qualification. Shape
+validation does not establish token validity or authenticated acceptance.
+
+Project reset uses an exact native-home/volume checkpoint; pass `KEEP_AUTH=1`
+to retain project auth and preserve global auth by default. `state-remove FULL=1`
+adds recorded historical native roots, both auth scopes, rollback copies and
+installation state; register older coordinates with `state-discover` first.
+`uninstall-code` preserves all state. These targets preview unless `EXECUTE=1`
+is supplied; see [operations](../../docs/operations.md#13-reset-and-uninstall)
+for recovery, custom roots and separately selected external provider files.
+Images require auth supervisor contract 3; rebuild through the Make targets.

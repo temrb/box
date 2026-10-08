@@ -113,7 +113,7 @@ PY
     printf 'printf "%%s\\n" "$*" >>%q\n' "$log"
     printf 'n=$(wc -l <%q)\n' "$log"
     printf 'if [ "$n" -eq 1 ]; then printf "%%s\\n" %q; else cat -- %q; fi\n' \
-      "$host_uid:$host_gid|$ver" "$payload"
+      "$host_uid:$host_gid|$ver|3" "$payload"
   } >"$stub"
   chmod +x -- "$stub"
   printf '%s\n' "${box_file_pin[OPENCODE_SHA256_AMD64]}|${box_file_pin[OPENCODE_SHA256_ARM64]}" >"$payload"
@@ -239,4 +239,27 @@ PYTEST
   run env BOX_OPENCODE_SHELL=1 bash "$guard" -c 'exit 0'
   [ "$status" -ne 0 ]
   [[ "$output" == *'redirected native OpenCode cache parent'* ]]
+}
+
+@test "managed v2 startup rejects legacy import files even after recorded migration" {
+  root="$TEST_TMP/persist"
+  auth="$TEST_TMP/auth"
+  native_bin="$TEST_TMP/native-bin"
+  mkdir -p -m 700 "$root/data/opencode/opencode" "$root/config/opencode" "$auth" "$native_bin"
+  printf '{"tombstone":true}\n' >"$auth/credentials.json"
+  printf '{"state":"active"}\n' >"$auth/lease.json"
+  printf '{"mode":"migrated"}\n' >"$auth/migration.json"
+  printf 'box_supervisor_validate() { return 0; }\n' >"$native_bin/box-supervisor.sh"
+  touch "$native_bin/box-auth-opencode.sh"
+  printf 'pass\n' >"$native_bin/box-supervisor-process.py"
+  sed -e "s|/persist|$root|g" -e "s|/run/box-auth|$auth|g" \
+    -e "s|/usr/local/bin|$native_bin|g" "$BUNDLE_DIR/harnesses/opencode/entrypoint.sh" >"$TEST_TMP/managed-entrypoint.sh"
+  for legacy in "$root/config/opencode/auth.json" "$root/data/opencode/auth.json" "$root/data/opencode/opencode/auth.json"; do
+    printf '{"synthetic":"legacy"}\n' >"$legacy"
+    run env BOX_OPENCODE_SHELL=1 bash "$TEST_TMP/managed-entrypoint.sh" -c 'exit 0'
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'explicitly quarantined outside the native importer paths'* ]]
+    [ "$(cat "$legacy")" = '{"synthetic":"legacy"}' ]
+    rm "$legacy"
+  done
 }

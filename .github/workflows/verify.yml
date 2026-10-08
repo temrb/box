@@ -20,7 +20,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q shellcheck bats jq python3
+          sudo apt-get install -y -q shellcheck bats ripgrep jq python3
           python3 -c 'import tomllib'
 
       - name: verify-static (syntax + configs + generated + pins + shellcheck + bats)

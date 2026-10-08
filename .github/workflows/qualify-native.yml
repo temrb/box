@@ -1,0 +1,39 @@
+# Manual only: reviewed default-branch code with Docker authority on dedicated
+# runners. Configure the protected environment before registering these labels.
+name: qualify-native
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Dedicated runner architecture
+        required: true
+        type: choice
+        options:
+          - amd64
+          - arm64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: box-native-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: >-
+      github.repository == 'temrb/box' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: box-native-qualification
+    runs-on: [self-hosted, linux, box-native, "${{ inputs.platform }}"]
+    timeout-minutes: 120
+    env:
+      BOX_QUALIFICATION_ROOT: ${{ vars.BOX_QUALIFICATION_ROOT }}
+      BOX_QUALIFICATION_PLATFORM: ${{ inputs.platform }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Record static, image, runtime and native qualification gates
+        run: bash -p box/tests/native/ci-qualification.sh
