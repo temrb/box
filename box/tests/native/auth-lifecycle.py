@@ -10,6 +10,22 @@ import subprocess
 import tempfile
 
 
+def safe_run(argv, *, cwd=None, env=None, check=True, timeout=60):
+    """Withhold command arguments/output from failure and timeout diagnostics."""
+    try:
+        result = subprocess.run(argv, cwd=cwd, env=env, check=False,
+                                capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Native fixture command timed out (arguments/output withheld)') from None
+    if check and result.returncode:
+        diagnostic = 'command-failure'
+        if 'not registered with Docker' in result.stderr:
+            diagnostic = 'runtime-not-registered'
+        raise RuntimeError(f'Native fixture command failed: exit={result.returncode}, diagnostic={diagnostic} '
+                           '(arguments/output withheld)')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--only', choices=('opencode',))
@@ -34,8 +50,7 @@ def main():
             env[prefix + '_GIT_NAME'] = 'Auth Fixture'
             env[prefix + '_GIT_EMAIL'] = 'fixture@example.invalid'
         def run(argv, *, cwd=None, call_env=None, check=True):
-            return subprocess.run(argv, cwd=cwd, env=call_env or env, check=check,
-                                  capture_output=True, text=True, timeout=60)
+            return safe_run(argv, cwd=cwd, env=call_env or env, check=check)
         def test_state(*argv, call_env=None):
             return run(['bash', str(bundle / 'lib/test-state.sh'), *argv],
                        call_env=dict(call_env or env, BOX_TOOL='auth-native')).stdout.strip()

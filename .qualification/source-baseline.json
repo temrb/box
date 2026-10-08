@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-08T15:50:34.610898+00:00",
+  "captured_at": "2026-10-08T16:01:52.248616+00:00",
   "head": "c85d13ca5706ba865bdede73b8aa8021df8a28ff",
   "host": {
     "architecture": "x86_64",
@@ -14,8 +14,8 @@
     ".github/workflows/qualify-disposable.yml": {
       "kind": "file",
       "mode": "0o644",
-      "sha256": "a880ebb0ca81b07c103bbb65a3dfcef1c75c6f0a170c381ffc223a9978f923fa",
-      "size": 4403
+      "sha256": "a87ce41e409b8bcbaa79a0737c78819bdb887637740682c73ab65b1cb53c848c",
+      "size": 4535
     },
     ".github/workflows/qualify-native.yml": {
       "kind": "file",
@@ -770,8 +770,8 @@
     "box/tests/bats/native-provenance.bats": {
       "kind": "file",
       "mode": "0o644",
-      "sha256": "1662bb17240d5ffda198f5f11d8ee1f9411fcd9e5e51509a5da483153825a0d3",
-      "size": 2533
+      "sha256": "ba9c66e4479fdcc3b20838d87cdaebf9fc67c6d6adee6d1342646439be5b0c9d",
+      "size": 3663
     },
     "box/tests/bats/opencode-capture.bats": {
       "kind": "file",
@@ -884,8 +884,8 @@
     "box/tests/native/auth-lifecycle.py": {
       "kind": "file",
       "mode": "0o644",
-      "sha256": "72027724a164bd31ed913a284a297d005a1568ec91b6189be596a250d9b2605b",
-      "size": 20298
+      "sha256": "cd2d7220f14dd292a629a7c3820c92eb5fca9f54ff47ec04a5a711dbbae90702",
+      "size": 21034
     },
     "box/tests/native/auth-store-test.py": {
       "kind": "file",
@@ -902,8 +902,8 @@
     "box/tests/native/codex-auth-fixture.py": {
       "kind": "file",
       "mode": "0o644",
-      "sha256": "a3942528188a396bd674c4c0d26f1661dc298d311cf99691d364c3307a6701f4",
-      "size": 7907
+      "sha256": "6a50b74d639a71780e04d816153e7d85007372ac717e79f080b4ac3ce4c352ef",
+      "size": 12102
     },
     "box/tests/native/host-fs-test.py": {
       "kind": "file",
@@ -1034,8 +1034,8 @@
     "specs/implementation-progress.md": {
       "kind": "file",
       "mode": "0o644",
-      "sha256": "d336a9d81a5bcb8c8e6c9e9df1fa4fe4c4a3323528d52194d122376eacb2281d",
-      "size": 30776
+      "sha256": "273819ac1f8033eb49d8ae18cf50bb30aaa4cdb60e05f4ad545cd2c3014c4862",
+      "size": 33709
     },
     "specs/native-qualification-2026-10-08.json": {
       "kind": "file",
@@ -1095,7 +1095,7 @@
   "root": "/workspace",
   "schema": 1,
   "scope": "source inventory only; not runtime, native, account, durability or CI acceptance",
-  "source_manifest_sha256": "129557f8cac9202a81cf86f8a9e44e4be8e7d3287fa7a9de1a68ea47c69c365a",
+  "source_manifest_sha256": "37b7c35e6585df51f15a6167a8b1493c16df61f0177f20c021878a982c32d77c",
   "status_porcelain_v1_nul": " M .github/workflows/verify.yml\u0000 M .gitignore\u0000 M box/.dockerignore\u0000 M box/Dockerfile\u0000 M box/Makefile\u0000 M box/README.md\u0000 M box/box-c\u0000 M box/box-m\u0000 M box/box-m-login\u0000 M box/box-o\u0000 M box/check-pins.sh\u0000 M box/docs/acceptance.md\u0000 M box/docs/adding-a-tool.md\u0000 M box/docs/architecture.md\u0000 M box/docs/harnesses.md\u0000 M box/docs/operations.md\u0000 M box/docs/security-resource-audit.md\u0000 M box/docs/troubleshooting.md\u0000 M box/docs/upgrades.md\u0000 M box/harnesses/codex/README.md\u0000 M box/harnesses/codex/launch.sh\u0000 M box/harnesses/codex/verify.d/40-readiness-codex.sh\u0000 M box/harnesses/muse/README.md\u0000 M box/harnesses/muse/install.sh\u0000 M box/harnesses/muse/launch.sh\u0000 M box/harnesses/muse/verify.d/40-readiness-muse.sh\u0000 M box/harnesses/opencode/README.md\u0000 M box/harnesses/opencode/capture-validation.sh\u0000 M box/harnesses/opencode/entrypoint.sh\u0000 M box/harnesses/opencode/launch.sh\u0000 M box/harnesses/opencode/verify.d/40-readiness-opencode.sh\u0000 M box/lib/docker.sh\u0000 M box/lib/install.sh\u0000 M box/lib/launcher.sh\u0000 M box/lib/preflight.sh\u0000 M box/lib/run.sh\u0000 M box/lib/test-state.sh\u0000 M box/lib/tools.sh\u0000 M box/setup.sh\u0000 M box/tests/bats/audit.bats\u0000 M box/tests/bats/auto-runtime.bats\u0000 M box/tests/bats/config-linkage.bats\u0000 M box/tests/bats/helpers.bash\u0000 M box/tests/bats/launchers.bats\u0000 M box/tests/bats/live-defaults.bats\u0000 M box/tests/bats/opencode-capture.bats\u0000 M box/tests/bats/opencode-v2.bats\u0000 M box/tests/bats/preflight.bats\u0000 M box/tests/bats/setup.bats\u0000 M box/tests/bats/sync-pins.bats\u0000 M box/tests/bats/test-state.bats\u0000 M box/tests/bats/tools.bats\u0000 M box/tests/native/acceptance.sh\u0000 M box/tests/native/lifecycle-audit.py\u0000 M box/verify-codex.sh\u0000 M box/verify-muse.sh\u0000 M box/verify-opencode.sh\u0000?? .agents/skills/prefine/SKILL.md\u0000?? .github/workflows/qualify-disposable.yml\u0000?? .github/workflows/qualify-native.yml\u0000?? box/harnesses/codex/auth.sh\u0000?? box/harnesses/muse/auth.sh\u0000?? box/harnesses/opencode/auth-state.py\u0000?? box/harnesses/opencode/auth-volume.py\u0000?? box/harnesses/opencode/auth.sh\u0000?? box/lib/auth-ops.sh\u0000?? box/lib/auth-store.py\u0000?? box/lib/auth.sh\u0000?? box/lib/host-fs.py\u0000?? box/lib/project-links.py\u0000?? box/lib/state-inventory.py\u0000?? box/lib/state-members.py\u0000?? box/lib/state-transaction.py\u0000?? box/lib/state.sh\u0000?? box/lib/supervisor-process.py\u0000?? box/lib/supervisor.sh\u0000?? box/tests/bats/auth-adapters.bats\u0000?? box/tests/bats/auth-lifecycle.bats\u0000?? box/tests/bats/auth-migration.bats\u0000?? box/tests/bats/auth-policy.bats\u0000?? box/tests/bats/auth-store.bats\u0000?? box/tests/bats/auth-volume.bats\u0000?? box/tests/bats/baseline.bats\u0000?? box/tests/bats/host-fs.bats\u0000?? box/tests/bats/make-inputs.bats\u0000?? box/tests/bats/native-provenance.bats\u0000?? box/tests/bats/qualification-workflow.bats\u0000?? box/tests/bats/state-removal.bats\u0000?? box/tests/bats/state.bats\u0000?? box/tests/bats/supervisor-process.bats\u0000?? box/tests/native/auth-lifecycle.py\u0000?? box/tests/native/auth-store-test.py\u0000?? box/tests/native/ci-qualification.sh\u0000?? box/tests/native/codex-auth-fixture.py\u0000?? box/tests/native/host-fs-test.py\u0000?? box/tests/native/muse-auth-fixture.py\u0000?? box/tests/native/opencode-auth-fixture.py\u0000?? box/tests/native/qualify-exhaustion.py\u0000?? box/tests/native/qualify-ext4.sh\u0000?? specs/capture-baseline.py\u0000?? specs/compare-baselines.py\u0000?? specs/granular-issues.md\u0000?? specs/implementation-progress.md\u0000?? specs/native-qualification-2026-10-08.json\u0000?? specs/passes/pass-1.md\u0000?? specs/passes/pass-2.md\u0000?? specs/passes/pass-3.md\u0000?? specs/passes/plan.md\u0000?? specs/plan.md\u0000?? specs/qualify-host-filesystem.py\u0000?? specs/test-qualify-host-filesystem.py\u0000?? todo.md\u0000",
   "tools": {
     "bash": "/usr/bin/bash",

@@ -69,3 +69,28 @@ teardown() {
   run bash -c 'compgen -G "$1/codex-auth-fixture-*"' fixture "$scratch"
   [ "$status" -ne 0 ]
 }
+
+@test "native lifecycle failures and timeouts withhold command arguments and captured output" {
+  run python3 -I - "$BATS_TEST_DIRNAME/../native/auth-lifecycle.py" <<'PY'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('lifecycle', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+secret = 'synthetic-private-command-sentinel'
+for code, timeout in [("import sys; print(sys.argv[1]); sys.exit(9)", 5),
+                      ("import sys,time; print(sys.argv[1],flush=True); time.sleep(20)", .05)]:
+    try:
+        module.safe_run([sys.executable, '-I', '-c', code, secret], timeout=timeout)
+    except RuntimeError as error:
+        assert secret not in str(error)
+        assert 'withheld' in str(error)
+        assert error.__suppress_context__ or error.__context__ is None
+    else:
+        raise AssertionError('fixture failure accepted')
+result = module.safe_run([sys.executable, '-I', '-c', 'import sys; sys.exit(9)'], check=False)
+assert result.returncode == 9
+PY
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'synthetic-private-command-sentinel'* ]]
+}

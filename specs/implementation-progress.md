@@ -1,5 +1,52 @@
 # Implementation progress — 2026-10-08
 
+## Native MCP mechanics and first hosted results — 2026-10-08
+
+Fresh pinned amd64 Codex package SHA256
+`4fcc47ab57f52ff75363951a8761146cd10c8288bd86fed45487dbb204a16b71`
+matched the registry and extracted executable before execution. Extended the
+native fixture from exact pinned `rmcp-client/src/oauth.rs` definitions, without
+adding a production member manifest or modifying a native adapter.
+
+**N (synthetic native mechanics):** Codex MCP file-store loading, exact
+server/endpoint-key logout, other-entry preservation, native 600 mode repair,
+last-member unlink, empty-map no-rewrite and malformed-store preservation pass.
+Independent provider auth and history bytes remain unchanged. Native CLI calls
+use a disposable home, forced file backend and closed loopback endpoints;
+no account authentication or token rotation is performed. OAuth issuance,
+callbacks, refresh locks/concurrency and alternate stores remain unqualified.
+Log `/tmp/box-codex-member-qualification/native.log`, SHA256
+`153135f5c5bad196d094765dfec3b7843dc0e5977339928749eb3799f37b69b5`.
+
+**CI/S/U:** Both static runs for snapshot
+`0c6788728f927ed02717b656f0ed6182b6fb6f40` completed successfully.
+**D/CI:** Its ARM64 hosted qualification built all three local images with Make,
+recorded immutable image IDs/pins/user, and passed all four live Docker cases.
+Static, pins, generated and disposable install gates also pass without skips.
+Artifact `11562122756` from run `37803020849` was downloaded and verified:
+ZIP SHA256 `42a626902c234a829f751b290a7cb027a2863c77476748bdf5b9d2c68a845b3d`.
+Native/OpenCode gates failed because Docker had no registered `runsc`, despite
+the signed gVisor package being installed. This is an environment setup defect;
+it does not establish runtime/native acceptance. Ubuntu ARM64 kernel
+`6.17.0-1022-azure`, Engine `28.0.4`, runsc `20260928.0`, cgroup v2, overlay2,
+UID/GID 1001/1001 were actually observed.
+
+The hosted setup now explicitly runs `sudo runsc install --runtime=runsc`,
+restarts its disposable Engine before builds, and requires `has("runsc")`.
+Default launchers still fail closed, with no automatic fallback. The native
+lifecycle driver now withholds command arguments/captured output in failure
+and timeout exceptions; five provenance/privacy regressions pass (**U**).
+
+**S/U:** Local full static verification with the authority primitive passed:
+563 passing cases, zero failures, five Docker-dependent skips (568 cases).
+Log `/tmp/box-static-authority.log`, SHA256
+`b62bd971b2d4829cd698bfaccb56e221c3bc46b8b63f284829119c10ef80fd44`.
+This run preceded the later MCP/privacy/registration edits; their focused native
+and provenance checks pass, with final full verification pending.
+Actual fetched Git blobs for snapshot `146bbca636613b6db16e7e9e97d11fbce7ddffbb`
+compare equal to its dirty inventory using `--publication` (not merely two
+local captures). Subsequent edits require a newer qualification snapshot.
+
 ## Host-only authority and hosted qualification continuation — 2026-10-08
 
 Preserved the dirty checkout; initial Git status and source capture are at

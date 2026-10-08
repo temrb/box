@@ -81,7 +81,7 @@ def main():
         if version != expected_version:
             raise SystemExit("BLOCKED: fixture requires the pinned Codex version")
         print("N: verified Codex package SHA256=" + expected_digest + " arch=" + arch.lower())
-        print("N: native version=" + version + "; synthetic provider checks only")
+        print("N: native version=" + version + "; synthetic provider and MCP file-storage checks only")
         native = home / "auth.json"
         envelope = root / "envelope.json"
 
@@ -143,6 +143,74 @@ def main():
             assert (home / name).read_bytes() == contents
         print("PASS: pinned Codex native API-key storage, synthetic OAuth load, logout,")
         print("adapter round-trip, refresh-shaped write, truncated-write/unsupported-mode preservation, unrelated markers")
+        # Exact pinned source contract, not a production adapter manifest:
+        # a956835d020762cb2b570053af06f643a11c0ecc
+        # codex-rs/rmcp-client/src/oauth.rs: FallbackTokenEntry,
+        # MCP_SERVER_TYPE="http", compute_store_key and write_fallback_file.
+        # A separate home keeps native config changes away from provider markers.
+        mcp_home = root / "mcp-home"
+        mcp_home.mkdir(mode=0o700)
+        env["CODEX_HOME"] = str(mcp_home)
+        mcp_native = mcp_home / ".credentials.json"
+        provider_marker = mcp_home / "auth.json"
+        provider_bytes = b'{"OPENAI_API_KEY":"synthetic-independent-provider"}'
+        provider_marker.write_bytes(provider_bytes)
+        provider_marker.chmod(0o600)
+        history_marker = mcp_home / "history.jsonl"
+        history_marker.write_bytes(b"synthetic unrelated MCP history\n")
+
+        def mcp(*argv, success=True):
+            return run(binary, "-c", 'mcp_oauth_credentials_store="file"', "mcp", *argv,
+                       success=success)
+
+        def entry(name, url):
+            # This package uses serde_json's insertion order here. Native
+            # logout below proves the computed key against the pinned binary.
+            payload = {"type": "http", "url": url, "headers": {}}
+            suffix = hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()[:16]
+            return name + "|" + suffix, {
+                "server_name": name, "server_url": url, "issuer": "http://127.0.0.1:9",
+                "client_id": "synthetic-client", "access_token": "synthetic-mcp-access",
+                "expires_at": None, "refresh_token": "synthetic-mcp-refresh", "scopes": ["fixture"],
+            }
+
+        first_url, second_url, changed_url = ("http://127.0.0.1:9/" + n for n in ("first", "second", "changed"))
+        mcp("add", "fixture-first", "--url", first_url)
+        mcp("add", "fixture-second", "--url", second_url)
+        entries = dict([entry("fixture-first", first_url), entry("fixture-second", second_url),
+                        entry("fixture-first", changed_url)])
+        mcp_native.write_text(json.dumps(entries))
+        mcp_native.chmod(0o600)
+        statuses = {r["name"]: r["auth_status"] for r in json.loads(mcp("list", "--json").stdout)}
+        assert statuses == {"fixture-first": "o_auth", "fixture-second": "o_auth"}
+        mcp("logout", "fixture-first")
+        del entries[entry("fixture-first", first_url)[0]]
+        assert json.loads(mcp_native.read_text()) == entries
+        assert mcp_native.stat().st_mode & 0o777 == 0o600
+        # Rewriting remaining entries repairs mode while preserving both the
+        # other endpoint and the independently managed provider store.
+        mcp_native.chmod(0o644)
+        mcp("logout", "fixture-second")
+        del entries[entry("fixture-second", second_url)[0]]
+        assert json.loads(mcp_native.read_text()) == entries
+        assert mcp_native.stat().st_mode & 0o777 == 0o600
+        mcp("remove", "fixture-first")
+        mcp("add", "fixture-first", "--url", changed_url)
+        mcp("logout", "fixture-first")
+        assert not mcp_native.exists()  # Last logout unlinks the aggregate store.
+        mcp_native.write_text("{}")
+        mcp_native.chmod(0o600)
+        mcp("logout", "fixture-first")
+        assert mcp_native.read_text() == "{}"  # A missing member causes no rewrite.
+        for malformed in ('{"truncated":', '{"entry":{"access_token":"synthetic"}}'):
+            mcp_native.write_text(malformed)
+            assert mcp("logout", "fixture-first", success=False).returncode
+            assert mcp_native.read_text() == malformed
+        assert provider_marker.read_bytes() == provider_bytes
+        assert history_marker.read_bytes() == b"synthetic unrelated MCP history\n"
+        print("PASS: pinned Codex MCP file-store load, exact server/endpoint logout, other-entry preservation,")
+        print("native mode repair, last-member unlink, empty-map and malformed-store preservation; provider/history unchanged")
+        print("Unqualified: MCP OAuth issuance/callbacks, refresh concurrency, keyring/encrypted/executor stores and real rotation")
     print("Cleanup: disposable native home and synthetic credentials removed")
 
 
