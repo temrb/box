@@ -162,6 +162,7 @@ printf '%s\n' "$muse_version_out"
 _muse_pin='1.4.0-R4161.1'
 [[ "$muse_version_out" == "Muse Code ${_muse_pin%%-*} ($_muse_pin)" ]] || { echo 'FAIL: muse exact binary version mismatch' >&2; exit 1; }
 test "${MUSE_NO_AUTO_UPDATE:-0}" = "1" || { echo 'FAIL: MUSE_NO_AUTO_UPDATE is not set to 1' >&2; exit 1; }
+test "${TBH_CREDENTIAL_BACKEND:-}" = "file" || { echo 'FAIL: Muse managed auth requires the qualified file backend' >&2; exit 1; }
 
 # shellcheck disable=SC2043 # one declared native cache today
 for _cache in /home/box/.config/muse/auth.json; do
@@ -173,8 +174,9 @@ done
 # persistent config dir. One of the two paths must hold.
 if [[ -n "${MUSE_CODE_API_KEY:-}" ]]; then
   echo 'MUSE_CODE_API_KEY environment injection: PASS (value withheld)'
-elif [[ -s /home/box/.config/muse/auth.json ]]; then
-  echo 'Native muse auth (auth.json via device login): PASS'
+elif jq -e '.schema_version == 1 and (.providers.meta.api_key | type == "string" and length > 0)' \
+    /home/box/.config/muse/auth.json >/dev/null 2>&1; then
+  echo 'Native muse file auth: PASS (credential values withheld)'
 else
   echo 'FAIL: no muse auth: set MUSE_CODE_API_KEY or log in via device flow (auth.json)' >&2
   exit 1
@@ -205,6 +207,20 @@ if touch /home/box/.config/muse/settings.json 2>/dev/null; then
   echo 'FAIL: settings snapshot must be read-only' >&2; exit 1
 fi
 echo 'Muse persistent auth/trust parent writable; settings snapshot read-only: PASS'
+
+# Auth-managed run: the selected canonical object is mounted read-write at
+# /run/box-auth (object dir only, never the shared auth root). The native
+# auth.json above is a temporary projection; the canonical envelope and
+# active lease live here. Non-secret checks only: no credential values.
+[[ -d /run/box-auth ]] || { echo 'FAIL: /run/box-auth is not mounted (auth-managed runs only)' >&2; exit 1; }
+jq -e --arg h muse '.harness == $h and .schema_version == 1' -- /run/box-auth/identity.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth identity mismatch (expected muse schema 1)' >&2; exit 1; }
+jq -e '.state == "active"' -- /run/box-auth/lease.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth lease is not active' >&2; exit 1; }
+jq -e 'type == "object" and .schema_version == 1 and .harness == "muse" and (.tombstone | type == "boolean")' \
+  -- /run/box-auth/credentials.json >/dev/null 2>&1 \
+  || { echo 'FAIL: auth envelope is not a valid muse envelope' >&2; exit 1; }
+echo 'Muse canonical auth mount + lease + envelope: PASS (values withheld)'
 echo "=== 5. Hardening & Host Containment Assertions ==="
 export LC_ALL=C
 # Defense-in-depth: the primary root gate lives in 00-header (N1, before any

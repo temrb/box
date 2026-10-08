@@ -28,6 +28,11 @@ build; `--skip-build` installs without building. Invoke these options through
 `bash box/setup.sh`. Reruns preserve installed pins and the selected `box`
 default; a fresh install selects Muse. Native login is a separate step in each
 harness guide. Empty protected `providers.env` is sufficient for device login.
+New images must expose auth supervisor contract 3; rebuild older images through
+`make build-<stem>`. Auth scope is configurable per harness (`BOX_AUTH_SCOPE`,
+`BOX_M/O/C_AUTH_SCOPE`, or `~/.config/box/state.toml`; Muse defaults to
+global, OpenCode/Codex to project); first launch after upgrade with legacy
+credentials requires explicit `make -C box auth-migrate|auth-init`.
 
 The source layout is `harnesses/<id>/` for native configuration, image policy,
 pins, launch/install/update/validation adapters, and verification partials;
@@ -37,7 +42,7 @@ one `Dockerfile`; host installation/build/update flows use Make targets and
 registry records in `lib/tools.sh`. User state is outside the checkout.
 
 - [Architecture and generated pin table](docs/architecture.md)
-- [Setup, usage, verification, reset, and uninstall](docs/operations.md)
+- [Setup, usage, verification, recoverable reset, full state inventory, and code-only uninstall](docs/operations.md)
 - [Upgrades, template refresh, policy rebuild, and recovery](docs/upgrades.md)
 - [Troubleshooting and runtime selection](docs/troubleshooting.md)
 - [Adding a harness](docs/adding-a-tool.md)

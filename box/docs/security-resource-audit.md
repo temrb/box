@@ -63,9 +63,10 @@ No host permissions were weakened. Build CLI homes were disposable.
 | Image | UID/GID-matched non-root user; root-owned binaries and Codex requirements; label/version/digest validation | Local-only per-UID/GID tag; rebuilding does not reset native stores |
 | Dedicated bridge | Outbound NAT, inter-container communication disabled; unrestricted destinations | Shared by harness sessions; remove only after dependent containers |
 | `/workspace` | One writable physical project bind, nonrecursive/private; agent can modify/delete project bytes | Survives session/OOM; project moves change state identity |
-| Muse global home | Writable host bind, shared across projects: preferences/auth/trust | Project-volume reset retains it; global-home reset affects every Muse project |
-| OpenCode v2 volume | Project config siblings, SQLite credentials/sessions/approvals, data/state; host config file read-only | Exact `box-o-v2` volume reset deletes this project's state; legacy volumes untouched |
-| Codex project home + volume | Host preferences/file auth/transcripts plus separate SQLite volume | Both stores needed for full reset; two-project isolation checked without account auth |
+| Muse native home (non-auth) | Writable host bind: preferences/trust; `auth.json` inside is a temporary projection only | Project-volume reset retains it; canonical auth removed only by explicit exact-identity removal |
+| Canonical auth objects | `~/.config/box/auth/<harness>/u<uid>/[global\|projects/<hash>]`, mode 700/600; `/run/box-auth` mount is the object dir only | One active writer per identity; retained across setup reruns and code-only uninstall; scope changes need explicit transition; removal needs exact identity + idle lease |
+| OpenCode v2 volume (non-auth) | Project config siblings, sessions/approvals, data/state; host config file read-only; credential rows are temporary projections only | Exact `box-o-v2` volume reset deletes this project's state; legacy volumes untouched |
+| Codex project home (non-auth) + volume | Host preferences/trust/transcripts plus separate SQLite volume; `auth.json` is a temporary projection only | Both stores needed for full non-auth reset; two-project isolation checked without account auth |
 | Scratch / shared memory | Read-only rootfs with executable `/tmp`, writable `/run`, `/var/tmp`, `~/.cache`; private IPC `/dev/shm` | Ephemeral; memory charged alongside processes, discarded on container removal |
 | Probe tracking directory | Private mktemp directory, Docker-generated CID, shell-generated saved traps | Owned-ID removal on completion/timeout/signals; best-effort if daemon unavailable |
 
@@ -294,15 +295,16 @@ which authentication/transcript stores to delete or transfer.
 
 Agents can damage mounted project files, alter writable native state, use their
 forwarded or native credentials and exfiltrate over unrestricted egress. gVisor
-and hardened runc are distinct boundaries; automatic fallback is a policy choice
+and hardened runc are distinct boundaries; runc requires an explicit fallback choice
 and can be disabled. The rootful Docker socket on the host remains privileged.
 
 One session's 8 GiB ceiling does not bound concurrent aggregate memory or host
 persistent disk. tmpfs shares the cgroup budget and can still OOM. Larger real
 workloads may need disk scratch, careful cache placement and host capacity
 planning; the synthetic comparison cannot determine a safe universal size.
-Named volumes/native logs/build cache do not auto-expire. Project-native state
-is intentionally shared between concurrent sessions; no new lock was added.
+Named volumes/native logs/build cache do not auto-expire. Auth identities and
+their native projections have serialization locks; those locks do not establish
+safe concurrent writes to every unrelated native state store.
 
 Path checks are best-effort check/use guards, not race-free openat/O_NOFOLLOW
 transactions. Setup copies installed code/templates per file and is not a
@@ -311,3 +313,25 @@ is not crash consistency. Probe cleanup is bounded but daemon failure, SIGKILL,
 host failure or a Docker create/start race can prevent completion. Warnings name
 an owned CID when available; operators must not broad-delete other sessions.
 Post-removal daemon event history is finite and not a durable incident log.
+
+### Auth removal follow-up (2026-10-07)
+
+Canonical auth deletion now uses deterministic permanent identity locks,
+read-only identity inventories, Docker bind-liveness checks and durable removal
+checkpoints with per-member inode/mode/digest validation. Synthetic fault tests
+cover checkpoint publication, member deletion and directory deletion, including
+foreign-byte preservation on refusal. This does not qualify a full non-auth
+uninstall or a crash-consistent whole-project reset. OpenCode validation/export
+operate on private database/WAL/SHM copies; unknown token-bearing tables and
+unsupported native credential payloads refuse before source mutation. Native
+service-stop enforcement and pinned OpenCode database/account qualification
+still need native runtime evidence. See the current [acceptance record](acceptance.md).
+
+Lifecycle removal now uses re-resolved native discovery records and durable
+exact-member manifests. Project reset records volume creation identity to refuse
+replacement volumes. Full removal holds an exclusive harness lifecycle lock,
+includes explicitly selected provider files and preserves unlisted installed
+code. Its final completion marker prevents recovery from re-inventorying newly
+created state. Permanent lock inodes remain outside removable auth objects.
+These mechanisms have synthetic interruption coverage; actual runtime locking,
+SIGKILL/power-loss stages and native refresh remain separate acceptance gates.

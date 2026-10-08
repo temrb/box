@@ -6,16 +6,10 @@
 # no display/browser by design (no DISPLAY/WAYLAND/xdg-open forwarding), so
 # the link must be opened in a HOST browser manually.
 #
-# Runtime default is AUTO: delegate to `box-m login`, which probes
-# container DNS under runsc first and auto-selects the hardened-runc fallback
-# only if needed (single shared probe in lib/launcher.sh — no duplicate probe
-# here). Docker embedded DNS 127.0.0.11 can be unreachable from inside the
-# runsc sandbox on user-defined bridge networks (endpoint-side,
-# upstream-independent gap), which presents as
-# `login failed: device flow transport error`. The launcher prints the
-# selection (NOTICE + WARNING on fallback, never silent).
-# Pass --docker-fallback to force runc, --runsc to force gVisor.
-# Honors BOX_M_ALLOW_FALLBACK=0 (fail closed instead of falling back).
+# Runtime defaults to runsc. The shared launcher's DNS/startup probe fails
+# closed; only --docker-fallback explicitly selects hardened runc.
+# Pass --runsc to skip the DNS probe for gVisor diagnostics.
+# BOX_M_ALLOW_FALLBACK=0 prohibits the explicit runc choice.
 # Run from any project directory; box-m discovers the workspace root.
 #
 # NOTE: the output filter below is a pure-bash read loop on purpose. An awk
@@ -46,13 +40,12 @@ Usage: box-m-login [--docker-fallback] [--runsc] [--dry-run] [--project-root PAT
 One-command Meta browser login. Prints a clear sign-in link in this
 terminal, then waits for host-browser approval.
 Run from any project directory. --project-root PATH selects a non-Git root.
-Runtime is AUTO by default: `box-m login`
-probes container DNS under runsc first and auto-selects the hardened-runc
-fallback only if needed. --docker-fallback forces runc, --runsc forces
-gVisor. Honors BOX_M_ALLOW_FALLBACK=0 (fail closed).
+Runtime defaults to runsc: `box-m login` refuses on a failed DNS/startup
+probe. --docker-fallback explicitly chooses runc, --runsc skips the DNS
+probe. Honors BOX_M_ALLOW_FALLBACK=0 (explicit fallback forbidden).
 --dry-run prints the underlying docker command without contacting Docker.
-Auth persists globally in ~/.config/box-m/muse-config/ (shared with
-`box-m login` — one login covers both entry points).
+Auth scope is configurable (global|project); the selected canonical identity
+is shared with `box-m login` — one login covers both entry points.
 EOF
 }
 
@@ -71,8 +64,8 @@ if ((${#launcher_rest[@]} != 0)); then
   exit 2
 fi
 
-# AUTO delegates runtime selection to the launcher's shared probe
-# (box_auto_runtime). No duplicate probe here. In --dry-run no daemon is
+# Delegate the default runsc health check to the shared launcher probe.
+# No duplicate probe here. In --dry-run no daemon is
 # contacted; show the default-runtime command.
 launcher_args=()
 if (( ! fallback_requested && ! explicit_runsc )); then
@@ -115,13 +108,26 @@ login_interrupt() {
   trap '' INT TERM HUP
   # Async shells may inherit ignored INT; TERM reaches launcher cleanup.
   # The delegated launcher bounds Docker cleanup (up to 14 seconds).
-  box_terminate_client "$login_pid" 16
-  box_terminate_client "$filter_pid"
+  if [[ -n "$login_pid" ]]; then box_terminate_client "$login_pid" 16; fi
+  if [[ -n "$filter_pid" ]]; then box_terminate_client "$filter_pid"; fi
   exit "$status"
 }
+login_pid=''
+filter_pid=''
+# Register handlers before a child can announce readiness. Otherwise a group
+# TERM in the gap after FIFO startup can kill this wrapper before it can wait
+# for delegated credential collection/cleanup.
+trap 'login_interrupt 143' TERM
+trap 'login_interrupt 130' INT
+trap 'login_interrupt 129' HUP
 set +e
 "$launcher" "${launcher_args[@]}" login >"$login_stream" 2>&1 <&0 &
 login_pid=$!
+(
+# Keep draining until the delegated launcher finishes signal cleanup. If a
+# process-group TERM kills this reader first, the launcher can receive SIGPIPE
+# while reporting interrupted child status, before it collects credentials.
+trap '' INT TERM HUP
 while IFS= read -r line || [[ -n "$line" ]]; do
   printf '%s\n' "$line"
   if [[ "$banner_done" -eq 0 ]] && probe_out=$(box_device_url_code "$line"); then
@@ -139,15 +145,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     touch -- "$banner_sentinel"
   elif [[ "$hint_done" -eq 0 ]] && [[ "$line" == *'device flow transport error'* ]]; then
     printf '\nHINT: container DNS unreachable (runsc + VPN/embedded-DNS).\n'
-    printf 'Re-run without --runsc so box-m-login auto-selects the fallback,\n'
-    printf 'or run: box-m --docker-fallback login\n\n'
+    printf 'Repair runsc networking, or explicitly choose compatibility mode:\n'
+    printf 'box-m --docker-fallback login (when fallback is permitted)\n\n'
     hint_done=1
   fi
-done <"$login_stream" &
+done <"$login_stream"
+) &
 filter_pid=$!
-trap 'login_interrupt 143' TERM
-trap 'login_interrupt 130' INT
-trap 'login_interrupt 129' HUP
 wait "$login_pid"
 login_status=$?
 wait "$filter_pid"

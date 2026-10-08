@@ -126,7 +126,7 @@ setup_plan_file() {
   [[ ! -L "$dest" && ( ! -e "$dest" || -f "$dest" ) ]] || die "Invalid installation destination: $dest"
   if [[ -e "$dest" ]]; then box_assert_owner_mode "$dest" 'Installed file' nowrite; fi
 }
-for _setup_lib in "$bundle_dir"/lib/*.sh; do
+for _setup_lib in "$bundle_dir"/lib/*.sh "$bundle_dir"/lib/*.py; do
   setup_plan_file "$HOME/.local/bin/lib/${_setup_lib##*/}"
 done
 setup_plan_file "$HOME/.local/bin/box-m-login"
@@ -159,7 +159,7 @@ for _setup_id in $box_tool_ids; do
     _setup_parent="$HOME/.local/bin/harnesses/$_setup_id/$(dirname -- "$_setup_relative")"
     box_plan_directory "$_setup_parent" >/dev/null
     setup_plan_file "$_setup_parent/${_setup_code##*/}"
-  done < <(find "$bundle_dir/harnesses/$_setup_id" -type f -name '*.sh' ! -path '*/verify.d/*')
+  done < <(find "$bundle_dir/harnesses/$_setup_id" -type f \( -name '*.sh' -o -name '*.py' \) ! -path '*/verify.d/*')
   for _setup_state in $(box_tool_field "$_setup_id" states); do
     if [[ "$(box_state_field "$_setup_id" "$_setup_state" kind)" == bind ]]; then
       _setup_dirs+=("$HOME/$(box_state_field "$_setup_id" "$_setup_state" root)")
@@ -223,7 +223,7 @@ for _setup_id in $box_tool_ids; do
     box_prepare_directory "$_setup_pkg/$(dirname -- "$_setup_relative")" 755 >/dev/null
     [[ ! -L "$_setup_pkg/$_setup_relative" ]] || die 'Installed adapter must not be a symlink.'
     box_atomic_install "$_setup_code" "$_setup_pkg/$_setup_relative" 644
-  done < <(find "$bundle_dir/harnesses/$_setup_id" -type f -name '*.sh' ! -path '*/verify.d/*')
+  done < <(find "$bundle_dir/harnesses/$_setup_id" -type f \( -name '*.sh' -o -name '*.py' \) ! -path '*/verify.d/*')
   # This is a code-only package tree; remove obsolete installed shell code
   # only after the current source package has been validated and installed.
   while IFS= read -r _setup_old; do
@@ -243,10 +243,20 @@ for _setup_id in $box_tool_ids; do
 done
 unset _setup_id _setup_pin_file
 setup_ok "version pins in place (installed pins win on re-run)"
+# State-policy interface: seed the versioned file with no explicit scope
+# settings. Reruns preserve it byte-for-byte; setup never migrates login
+# material (migration is an explicit live-launch gate / Make target).
+_setup_policy_result=$(box_install_state_policy "$HOME/.config/box/state.toml")
+if [[ "$_setup_policy_result" == created ]]; then
+  setup_ok "state policy created (~/.config/box/state.toml, mode 600, no scopes pinned)"
+else
+  setup_ok "state policy present (kept as-is)"
+fi
+unset _setup_policy_result
 # Install the whole split lib/ dir (launchers source the split files via
 # their own dir; the installed copy must match that layout).
 [[ -f "$bundle_dir/lib/preflight.sh" ]] || die "Missing lib sources in $bundle_dir/lib."
-for _lib in "$bundle_dir"/lib/*.sh; do
+for _lib in "$bundle_dir"/lib/*.sh "$bundle_dir"/lib/*.py; do
   box_atomic_install "$_lib" "$HOME/.local/bin/lib/$(basename -- "$_lib")" 644
 done
 unset _lib

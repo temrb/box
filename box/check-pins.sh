@@ -92,8 +92,16 @@ if [[ -f "$dockerignore" ]]; then
     || die '.dockerignore must allowlist !Dockerfile'
   ! grep -Eq '^!Dockerfile\.(muse|opencode)([[:space:]]|$)' "$dockerignore" \
     || die '.dockerignore must not reference deleted Dockerfile.muse/Dockerfile.opencode'
-  ! grep -Eq '^!lib/' "$dockerignore" \
-    || die '.dockerignore must not allowlist lib/ (only entrypoint/archive/policy inputs are COPYd)'
+  # The bounded shared exceptions are the auth supervisor and process shutdown
+  # helper. Host resolvers, lifecycle operations and credentials stay excluded.
+  _pins_lib_rules=$(grep -E '^!lib/' "$dockerignore" || true)
+  if [[ -n "$_pins_lib_rules" ]]; then
+    [[ "$_pins_lib_rules" == '!lib/
+!lib/supervisor.sh
+!lib/supervisor-process.py' ]] \
+      || die '.dockerignore lib/ exception must contain only supervisor.sh and supervisor-process.py plus traversal'
+  fi
+  unset _pins_lib_rules
   ! grep -Eq 'nodesource' "$dockerignore" \
     || die '.dockerignore must not reference deleted NodeSource key'
   ! grep -Eq '^!harnesses/opencode/policy/' "$dockerignore" \

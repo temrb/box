@@ -25,6 +25,8 @@ _launcher_dir=$(dirname -- "$_launcher_src")
 unset _launcher_src
 # shellcheck source=lib/test-state.sh
 source "$_launcher_dir/test-state.sh"
+# shellcheck source=lib/state.sh
+source "$_launcher_dir/state.sh"
 unset _launcher_dir
 
 # These deduplicate the argument loop, project identity, supplementary-GID
@@ -76,6 +78,9 @@ box_parse_launcher_args() {
 box_check_fallback() {
   local allow_env=${1:-}
   [[ -n "$allow_env" ]] || die 'Internal error: missing fallback env name.'
+  if [[ -n "${!allow_env+x}" ]]; then
+    case "${!allow_env}" in 0|1) ;; *) die "$allow_env must be 0 or 1." ;; esac
+  fi
   if ((fallback_requested)); then
     # shellcheck disable=SC2086
     [[ "${!allow_env:-1}" != "0" ]] \
@@ -90,7 +95,7 @@ box_check_fallback() {
 # Usage: box_project_identity <tool-prefix>  (e.g. box_project_identity box-m)
 # Sets globals: project, host_uid, host_gid, project_hash, volume, container.
 box_project_identity() {
-  local prefix=${1:-} hash_full box_now test_id
+  local prefix=${1:-} box_now test_id
   [[ -n "$prefix" ]] || die 'Internal error: missing tool prefix.'
   launch_directory=$(pwd -P) || die 'Cannot resolve launch directory.'
   # Sanitize all Git environment controls before repository discovery.
@@ -115,13 +120,10 @@ box_project_identity() {
   host_uid=$(id -u) || die 'Cannot determine UID.'
   host_gid=$(id -g) || die 'Cannot determine GID.'
   (cd -- "$project" && box_preflight_project)
-  # Split off sha256sum's "  -" trailer instead of slicing blindly.
-  hash_full=$(printf '%s' "$state_identity" | sha256sum) \
-    || die 'Cannot hash project path.'
-  hash_full=${hash_full%% *}
-  [[ "$hash_full" =~ ^[0-9a-f]{64}$ ]] || die 'Cannot hash project path.'
-  project_hash=${hash_full:0:20}
-  volume="${prefix}-u${host_uid}-g${host_gid}-${project_hash}"
+  # Workspace discovery stays here; identity formulas live in state.sh.
+  project_hash=$(box_state_project_hash "$state_identity") || die 'Cannot hash project path.'
+  test_id=$(box_test_id_for_prefix "$prefix") || die 'Cannot resolve harness identity.'
+  volume=$(box_state_volume_name "$test_id" "$host_uid" "$host_gid" "$project_hash") || die 'Cannot derive volume.'
   if box_test_in_test_mode; then
     # Phase-S disposable test namespace (specs/plan.md §0 B0): test runs
     # resolve to `box-test-<ns>-` identities only. Partial test setup fails
@@ -129,6 +131,9 @@ box_project_identity() {
     # never set BOX_TEST_STATE_NS/BOX_TEST_TASK_ROOT. project_hash stays
     # populated for workspace behavior, inventory, and dry-run visibility.
     box_test_require_vars
+    if [[ -n "${BOX_TEST_PROJECT_HASH+x}" ]]; then
+      [[ "$BOX_TEST_PROJECT_HASH" == "$project_hash" ]] || die 'Test fixture hash must match the physical workspace.'
+    fi
     box_test_state_overrides_location_check
     test_id=$(box_test_id_for_prefix "$prefix") || die 'Cannot resolve test harness identity.'
     box_require_tool "$test_id"
@@ -318,25 +323,10 @@ box_probe_runsc_dns() {
   return "$probe_rc"
 }
 
-# AUTO runtime: probe container DNS under runsc first, stay on gVisor when
-# healthy, else auto-select hardened runc with a single NOTICE plus the
-# standard fallback WARNING (never silent). The probe rc is classified via
-# box_classify_probe_rc: 1/2 → DNS NOTICE, any other nonzero → startup NOTICE
-# naming the exit code; both heal identically, only the words differ. With
-# <allow_env>=0 a failed probe fails closed with remediation instead of
-# launching a run that would fail opaquely inside (e.g. `device flow transport
-# error` for the Muse device flow, `failed to fetch model catalog` for TUI
-# runs; startup verdicts add runsc/Engine version checks). The optional
-# <context> names the run in both messages (default '`login`'); callers pass
-# probe hosts after it (required: each launcher passes its registry
-# probe_hosts).
-# Honors explicit --runsc (no probe, stay on gVisor). Callers must skip
-# calling under --dry-run (no daemon contact), explicit --docker-fallback,
-# and --shell runs (explicit-only diagnostics path); see
-# box_maybe_auto_runtime for that gate. Sets globals: runtime_args,
-# fallback_requested.
+# Default runtime health check. Failure refuses the launch; runc requires
+# explicit --docker-fallback. Keep the historical function name for callers.
+# Explicit runtime choices and offline shell diagnostics skip this DNS probe.
 # Usage: box_auto_runtime <image> <network> <ALLOW_ENV_NAME> [context] <host...>
-# (e.g. box_auto_runtime "$image" box-m BOX_M_ALLOW_FALLBACK 'this run' auth.meta.com)
 box_auto_runtime() {
   # shellcheck disable=SC2016 # backticks in the default context are an intentional literal.
   local image=${1:-} network=${2:-} allow_env=${3:-} context=${4:-'`login`'}
@@ -350,37 +340,20 @@ box_auto_runtime() {
   ((probe_rc == 0)) && return 0
   local verdict
   verdict=$(box_classify_probe_rc "$probe_rc")
-  # shellcheck disable=SC2086
-  if [[ "${!allow_env:-1}" == "0" ]]; then
-    case "$verdict" in
-      dns) die "runsc container DNS unreachable and fallback disabled via ${allow_env}=0; refusing to start $context." ;;
-      *) die "runsc failed to start or complete probe containers (exit $probe_rc) and fallback disabled via ${allow_env}=0; refusing to start $context (check 'runsc --version', the daemon log, and runsc/Engine version compatibility)." ;;
-    esac
+  local hint='Repair runsc or explicitly select --docker-fallback.'
+  if [[ "${!allow_env:-1}" == 0 ]]; then
+    hint="fallback disabled via ${allow_env}=0; repair runsc."
   fi
   case "$verdict" in
-    dns)
-      printf '%s: NOTICE: container DNS unreachable under runsc; auto-selecting hardened-runc fallback for %s.\n' "$BOX_TOOL" "$context" >&2
-      ;;
-    *)
-      printf '%s: NOTICE: runsc failed to start or complete probe containers (exit %s); auto-selecting hardened-runc fallback for %s.\n' "$BOX_TOOL" "$probe_rc" "$context" >&2
-      ;;
+    dns) die "runsc container DNS unreachable; refusing to start $context. $hint" ;;
+    *) die "runsc failed to start or complete probe containers (exit $probe_rc); refusing to start $context (check 'runsc --version', the daemon log, and runsc/Engine version compatibility). $hint" ;;
   esac
-  runtime_args=(--runtime=runc)
-  fallback_requested=1
-  box_check_fallback "$allow_env"
 }
 
-# Shared AUTO-runtime gate for tool/TUI runs (all launchers). Skips the
-# probe unless this is a live run with no explicit runtime choice: --dry-run
-# (no daemon contact), --docker-fallback, --runsc, and --shell runs (the
-# explicit-only diagnostic/verify path) all return unchanged. Otherwise
-# delegates to box_auto_runtime, so a broken runsc DNS heals to
-# hardened runc with NOTICE + WARNING while the healthy path stays on runsc
-# with no output change (it still pays one probe-container round trip).
-# Reads globals dry_run, fallback_requested, shell_mode, explicit_runsc.
-# Usage: box_maybe_auto_runtime <image> <network> <ALLOW_ENV_NAME> [context] [host...]
+# Probe default online launches only. Explicit choices, dry-run and shell
+# diagnostics retain their selected runtime without requiring DNS health.
 box_maybe_auto_runtime() {
-  ((dry_run == 0)) && ((fallback_requested == 0)) && ((shell_mode == 0)) && ((explicit_runsc == 0)) || return 0
+  ((dry_run == 0)) && ((fallback_requested == 0)) && ((shell_mode == 0)) && ((explicit_runsc == 0)) && ((${network_required:-1} == 1)) || return 0
   box_auto_runtime "$@"
 }
 
@@ -452,7 +425,15 @@ box_launch_prologue() {
   box_require_tool "$id"
   local gpfx artifacts first_format cfg_var cfg_default vf_var vf_default img_var
   gpfx=$(box_tool_field "$id" git_prefix)
-  # Check explicit runtime selection before the independent automatic DNS probe.
+  # Validate every supplied fallback policy before project/state access.
+  local supplied_id supplied_var
+  for supplied_id in $box_tool_ids; do
+    supplied_var="$(box_tool_field "$supplied_id" git_prefix)_ALLOW_FALLBACK"
+    if [[ -n "${!supplied_var+x}" ]]; then
+      case "${!supplied_var}" in 0|1) ;; *) die "$supplied_var must be 0 or 1." ;; esac
+    fi
+  done
+  # Check explicit runtime selection before the independent DNS probe.
   box_check_fallback "${gpfx}_ALLOW_FALLBACK"
   tool_network=$(box_tool_field "$id" network)
   box_project_identity "$(box_tool_field "$id" state_prefix)"

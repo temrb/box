@@ -13,9 +13,10 @@ STEM_IDS = {'m': 'muse', 'o': 'opencode', 'c': 'codex'}
 
 def main():
     bundle = Path(__file__).resolve().parents[2]
+    subprocess.run(["python3", "-I", str(bundle / "tests/native/auth-lifecycle.py")], check=True)
     tstate_lib = bundle / 'lib' / 'test-state.sh'
     real_home = Path.home()
-    with tempfile.TemporaryDirectory(prefix='.box-lifecycle-', dir=real_home) as directory:
+    with tempfile.TemporaryDirectory(prefix='.box-lifecycle-', dir=os.environ.get('BOX_TEST_PROJECT_ROOT', str(real_home))) as directory:
         root = Path(directory); home = root / 'home'; home.mkdir(mode=0o700)
         project = root / 'project'; project.mkdir(mode=0o700)
         env = dict(os.environ, HOME=str(home))
@@ -23,6 +24,8 @@ def main():
         for key in list(env):
             if key.startswith(('BOX_M_', 'BOX_O_', 'BOX_C_')):
                 del env[key]
+        for key in ('BOX_AUTH_SCOPE', 'BOX_AUTH_ROOT', 'BOX_STATE_CONFIG', 'BOX_AUTH_TRANSITION', 'BOX_TEST_PROJECT_HASH'):
+            env.pop(key, None)
         for prefix in ('BOX_M', 'BOX_O', 'BOX_C'):
             env[prefix + '_GIT_NAME'] = 'Lifecycle Fixture'
             env[prefix + '_GIT_EMAIL'] = 'fixture@example.invalid'
@@ -63,7 +66,9 @@ def main():
         def record(case, **data):
             print(json.dumps(dict(case=case, **data)), flush=True)
         def identity(path):
-            return hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:20]
+            return subprocess.run(['bash', str(bundle / 'lib/state.sh'), 'project-hash', str(path)],
+                                  env=dict(env, BOX_TOOL='lifecycle'), check=True, text=True,
+                                  capture_output=True).stdout.strip()
         def launch(stem, path, command, ns, flag='--runsc', check=True):
             call_env = dict(env, BOX_TEST_STATE_NS=ns)
             if stem == 'c':
@@ -77,6 +82,19 @@ def main():
         def inventory(path):
             return {str(p.relative_to(path)): hashlib.sha256(p.read_bytes()).hexdigest()
                     for p in path.rglob('*') if p.is_file() and not p.is_symlink()}
+        def dryrun(stem, path, ns, scope):
+            # Non-secret auth identity only: no containers, no credentials.
+            call_env = dict(env, BOX_TEST_STATE_NS=ns, BOX_AUTH_SCOPE=scope)
+            if stem == 'c':
+                call_env['BOX_C_STATE_ROOT'] = str(codex_home(ns).parent)
+            p = subprocess.run([str(home / '.local/bin' / ('box-' + stem)), '--dry-run'],
+                               cwd=path, env=call_env, capture_output=True, text=True, timeout=60)
+            if p.returncode:
+                raise RuntimeError('%s dry-run: %s' % (stem, p.stderr[-1000:]))
+            for line in p.stdout.splitlines():
+                if line.startswith('Canonical auth directory: '):
+                    return line.split(': ', 1)[1]
+            raise RuntimeError('%s dry-run hid its canonical auth directory' % stem)
         try:
             run(['bash', str(bundle / 'setup.sh'), '--skip-build'])
             providers = home / '.config/box/providers.env'
@@ -94,6 +112,19 @@ def main():
             for stem in 'moc':
                 launch(stem, alias, 'test "$(cat /persist/lifecycle-marker)" = fixture', ns_main)
             record('physical-alias', result='pass', identity=old_hash)
+            # Auth-scope identity: global shared across projects, project
+            # isolated, scopes distinct — via dry-run (no containers).
+            second_identity = root / 'second-identity'; second_identity.mkdir(mode=0o700)
+            for stem in 'moc':
+                g_a = dryrun(stem, project, ns_main, 'global')
+                g_b = dryrun(stem, second_identity, ns_main, 'global')
+                assert g_a == g_b, stem
+                p_a = dryrun(stem, project, ns_main, 'project')
+                p_b = dryrun(stem, second_identity, ns_main, 'project')
+                assert p_a != p_b, stem
+                assert g_a != p_a, stem
+                record('auth-scope-identity', harness=stem, result='pass',
+                       global_shared=True, project_isolated=True)
             moved = root / 'moved'; project.rename(moved)
             new_hash = identity(moved)
             assert new_hash != old_hash

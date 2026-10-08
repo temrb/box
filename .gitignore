@@ -22,10 +22,6 @@ providers.env
 # Local test scratch (bats HOME override used by validation runs).
 .bats*
 
-/.agents/
-
-/specs/
-
 skills-lock.json
 
 # Python bytecode / caches (native-probe.py, archive.py, tests/native/*.py).
@@ -49,3 +45,6 @@ coverage.xml
 # OS junk.
 .DS_Store
 Thumbs.db
+
+# /.agents/
+# /specs/

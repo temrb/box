@@ -8,6 +8,18 @@
 !harnesses/opencode/
 !harnesses/opencode/entrypoint.sh
 !harnesses/opencode/archive.py
+!harnesses/opencode/auth.sh
+!harnesses/opencode/auth-state.py
+!harnesses/opencode/auth-volume.py
+!harnesses/muse/
+!harnesses/muse/auth.sh
 !harnesses/codex/
+!harnesses/codex/auth.sh
 !harnesses/codex/policy/
 !harnesses/codex/policy/requirements.toml
+# Shared auth supervisor and process shutdown helper (host and
+# entrypoint share one supervised install/collect/commit/scrub/idle contract).
+# The lib dir exception exists for traversal only, exactly like harnesses/.
+!lib/
+!lib/supervisor.sh
+!lib/supervisor-process.py

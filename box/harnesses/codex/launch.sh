@@ -16,9 +16,27 @@ USAGE
 box_parse_launcher_args "$@"
 set -- "${launcher_rest[@]}"
 box_launch_prologue codex
-if [[ -n "${BOX_C_STATE_ROOT:-}" && -n "${BOX_C_STATE_DIR:-}" && "$BOX_C_STATE_ROOT" != "$BOX_C_STATE_DIR" ]]; then
-  die 'BOX_C_STATE_ROOT and legacy BOX_C_STATE_DIR must agree when both are set.'
+box_state_guard_reset codex "$host_uid" "$host_gid" "$project_hash"
+# Auth scope is declarative (registry + policy). CODEX_HOME stays
+# project-scoped; canonical auth lives in the resolved auth object.
+# BOX_C_AUTH selects credential forwarding only, never persistence scope.
+codex_auth_policy=$(box_auth_policy_result codex)
+codex_auth_scope=${codex_auth_policy%%$'\n'*}
+codex_auth_source=${codex_auth_policy#*$'\n'}
+if [[ "$codex_auth_scope" == global ]]; then
+  codex_auth_dir=$(box_auth_object_dir codex global "$host_uid")
+else
+  codex_auth_dir=$(box_auth_object_dir codex project "$host_uid" "$project_hash")
 fi
+codex_root_alias=""
+for selector in BOX_C_STATE_ROOT BOX_C_STATE_DIR; do
+  [[ -n "${!selector+x}" ]] || continue
+  [[ -n "${!selector}" ]] || die 'Native state root override must not be empty.'
+  planned_root=$(box_plan_directory "${!selector}")
+  [[ -z "$codex_root_alias" || "$codex_root_alias" == "$planned_root" ]] \
+    || die 'BOX_C_STATE_ROOT and legacy BOX_C_STATE_DIR must agree when both are set.'
+  codex_root_alias=$planned_root
+done
 if box_test_in_test_mode; then
   # Phase-S test namespace (specs/plan.md §0 B0): the home is exactly
   # <task-root>/<ns>/codex-home. BOX_C_STATE_ROOT is the test selector and
@@ -38,6 +56,12 @@ else
 fi
 if [[ -d "$codex_home" ]]; then box_assert_owner_mode "$codex_home" 'Codex home' dir700; fi
 box_plan_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli" >/dev/null
+if ((dry_run)); then
+  printf 'Execution domain: %s\n' "$([ -n "${BOX_TEST_STATE_NS:-}" ] && printf 'test' || printf 'production')"
+  printf 'Auth scope: %s\nAuth policy source: %s\nCanonical auth directory: %s\nNative projection: %s/auth.json\nNon-auth home: %s\nNon-auth volume: %s\n' \
+    "$codex_auth_scope" "$codex_auth_source" "$codex_auth_dir" "$codex_home" "$codex_home" "$volume"
+  box_auth_dryrun_report codex "$host_uid" "$project_hash" "$codex_home/auth.json"
+fi
 # Auth/health checks run on live runs only: --dry-run never checks auth.
 if (( ! dry_run )); then box_assert_native_cache "$codex_home/auth.json"; fi
 if [[ -e "$codex_home/config.toml" || -L "$codex_home/config.toml" ]]; then
@@ -56,6 +80,7 @@ elif (( ! shell_mode )) && [[ "${1:-}" == login && $# == 1 ]]; then
   set -- login --device-auth
 fi
 case "${BOX_C_AUTH:-chatgpt}" in chatgpt|api) ;; *) die 'BOX_C_AUTH must be chatgpt or api.';; esac
+if (( ! dry_run )); then box_state_lock_launch codex; fi
 if (( ! dry_run )); then
   if ((api_login)); then [[ -n "${OPENAI_API_KEY:-}" ]] || die 'Explicit API-key login requires OPENAI_API_KEY in providers.env.'; fi
   box_prepare_directory "$state_root" 700 >/dev/null
@@ -66,18 +91,39 @@ if (( ! dry_run )); then
   box_backup_preferences "$codex_home/config.toml"
   if [[ -f "$codex_home/config.toml" ]]; then
     # Preserve native trust records only; all preferences inherit live defaults.
+    # Trust/history/sessions persist in the project home regardless of scope.
     trust_config=$(box_config_toml_subtree "$codex_home/config.toml" projects trust_level) \
       || die 'Cannot preserve Codex trust records.'
     box_write_if_changed "$codex_home/config.toml" "$trust_config" 'Codex trust records'
   fi
   flock -u "$preferences_lock"
   exec {preferences_lock}>&-
+  # Managed auth projection: canonical envelope <-> native auth.json.
+  box_auth_ensure_object "$codex_auth_dir" codex "$codex_auth_scope" "$host_uid" "$project_hash"
+  box_auth_transition_plan codex "$host_uid" "$project_hash" "$project"
+  box_auth_migration_gate codex "$codex_auth_dir" "$codex_home/auth.json" "$codex_auth_dir/migration.json"
+  box_auth_lease_reserve "$codex_auth_dir" "$codex_home/.box-projection.lock" "$codex_home/auth.json"
+  box_auth_install_projection codex "$codex_auth_dir" "$codex_home/auth.json" "$script_dir"
+  codex_cleanup() {
+    local rc=$?
+    if [[ -n "${codex_auth_dir:-}" && -f "$codex_auth_dir/lease.json" ]] && grep -q '"state":"active"' -- "$codex_auth_dir/lease.json" 2>/dev/null; then
+      box_auth_collection_stopped "${codex_auth_dir}" || exit 1
+      box_auth_collect_projection codex "$codex_auth_dir" "$codex_home/auth.json" "$script_dir"
+      box_auth_lease_release "$codex_auth_dir"
+    fi
+    return "$rc"
+  }
+  trap codex_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
 fi
 box_docker_cli "$HOME/.config/$(box_tool_field codex config_dir)/docker-cli"
 launch_mounts=(--mount "type=bind,src=$project,dst=/workspace,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=bind,src=$codex_home,dst=/home/box/.codex,bind-recursive=disabled,bind-propagation=rprivate"
   --mount "type=volume,src=$volume,dst=/persist"
   --mount "type=bind,src=$config,dst=/etc/codex/config.toml,readonly"
+  --mount "type=bind,src=$codex_auth_dir,dst=/run/box-auth,bind-recursive=disabled,bind-propagation=rprivate"
   --env CODEX_HOME=/home/box/.codex
   --env "GIT_AUTHOR_NAME=$identity_name" --env "GIT_COMMITTER_NAME=$identity_name"
   --env "GIT_AUTHOR_EMAIL=$identity_email" --env "GIT_COMMITTER_EMAIL=$identity_email"

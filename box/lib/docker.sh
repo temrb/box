@@ -165,48 +165,52 @@ box_assert_image() {
   first_pair=$(box_tool_field "$tool" label_pins); first_pair=${first_pair%% *}
   lkey=${first_pair#*:}
   image_info=$("${docker_cmd[@]}" image inspect \
-    --format "{{.Config.User}}|{{index .Config.Labels \"$lkey\"}}" "$image") \
+    --format "{{.Config.User}}|{{index .Config.Labels \"$lkey\"}}|{{index .Config.Labels \"org.box.auth-contract\"}}" "$image") \
     || die 'Build the image for your UID/GID first.'
   [[ "$image_info" == *'|'* ]] || die 'Cannot parse image inspect output.'
-  IFS='|' read -r image_user image_label _rest <<<"$image_info"
+  local auth_contract=""
+  IFS='|' read -r image_user image_label auth_contract _rest <<<"$image_info"
   [[ -z "${_rest:-}" ]] || die 'Cannot parse image inspect output.'
   [[ "$image_user" == "$host_uid:$host_gid" ]] || die 'Image UID/GID differs; rebuild with your current IDs.'
+  # Auth-supervisor contract is mandatory even for explicit overrides:
+  # UID/GID compatibility alone is insufficient (§10.10). Older images
+  # without the supervisor/adapter contract are rejected outright.
+  [[ "$auth_contract" == "3" ]] || die 'Image lacks the auth-supervisor contract (org.box.auth-contract=3); rebuild the image (old images are rejected, including explicit overrides).'
+  case "$override" in 0|1) ;; *) die 'Invalid image override selector.' ;; esac
   if ((override)); then
-    printf '%s: WARNING: explicit image override %s; pinned-version and integrity label checks skipped (UID/GID still enforced).\n' \
-      "$BOX_TOOL" "$image" >&2
-  else
-    [[ "$image_label" == "$expected" ]] \
-      || die "Image label reports ${image_label:-none}, but $vfile pins $expected; rebuild the image or update the pin file."
-    # Remaining integrity labels ride one combined inspect (same single-format
-    # pattern as lib/build.sh), then compare per key so each mismatch still
-    # names its label. The '|' join is safe: pin regexes admit no pipes.
-    local pair pin key want first=1
-    local -a want_keys=() want_values=()
-    for pair in $(box_tool_field "$tool" label_pins); do
-      if ((first)); then first=0; continue; fi # version already compared above
-      pin=${pair%%:*}; key=${pair#*:}
-      want=${box_file_pin[$pin]:-}
-      [[ -n "$want" ]] || die "Internal error: missing $pin pin for image assertion."
-      want_keys+=("$key")
-      want_values+=("$want")
+    printf '%s: explicit image override %s; pinned-version, integrity and auth-contract checks remain mandatory.\n' "$BOX_TOOL" "$image" >&2
+  fi
+  [[ "$image_label" == "$expected" ]] \
+    || die "Image label reports ${image_label:-none}, but $vfile pins $expected; rebuild the image or update the pin file."
+  # Remaining integrity labels ride one combined inspect (same single-format
+  # pattern as lib/build.sh), then compare per key so each mismatch still
+  # names its label. The '|' join is safe: pin regexes admit no pipes.
+  local pair pin key want first=1
+  local -a want_keys=() want_values=()
+  for pair in $(box_tool_field "$tool" label_pins); do
+    if ((first)); then first=0; continue; fi # version already compared above
+    pin=${pair%%:*}; key=${pair#*:}
+    want=${box_file_pin[$pin]:-}
+    [[ -n "$want" ]] || die "Internal error: missing $pin pin for image assertion."
+    want_keys+=("$key")
+    want_values+=("$want")
+  done
+  if ((${#want_keys[@]} > 0)); then
+    local label_fmt='' label_got='' i
+    for i in "${!want_keys[@]}"; do
+      label_fmt+="${label_fmt:+|}{{index .Config.Labels \"${want_keys[$i]}\"}}"
     done
-    if ((${#want_keys[@]} > 0)); then
-      local label_fmt='' label_got='' i
-      for i in "${!want_keys[@]}"; do
-        label_fmt+="${label_fmt:+|}{{index .Config.Labels \"${want_keys[$i]}\"}}"
-      done
-      label_got=$("${docker_cmd[@]}" image inspect \
-        --format "$label_fmt" "$image") \
-        || die "Cannot inspect image labels."
-      local -a got_values=()
-      IFS='|' read -r -a got_values <<<"$label_got"
-      ((${#got_values[@]} == ${#want_keys[@]})) || die 'Cannot parse image inspect output.'
-      for i in "${!want_keys[@]}"; do
-        label_value=${got_values[$i]}
-        [[ "$label_value" == "${want_values[$i]}" ]] \
-          || die "Image ${want_keys[$i]} label mismatch; rebuild the image or update $vfile."
-      done
-    fi
+    label_got=$("${docker_cmd[@]}" image inspect \
+      --format "$label_fmt" "$image") \
+      || die "Cannot inspect image labels."
+    local -a got_values=()
+    IFS='|' read -r -a got_values <<<"$label_got"
+    ((${#got_values[@]} == ${#want_keys[@]})) || die 'Cannot parse image inspect output.'
+    for i in "${!want_keys[@]}"; do
+      label_value=${got_values[$i]}
+      [[ "$label_value" == "${want_values[$i]}" ]] \
+        || die "Image ${want_keys[$i]} label mismatch; rebuild the image or update $vfile."
+    done
   fi
 }
 
@@ -313,6 +317,7 @@ box_docker_exec() {
   box_assert_network "$network"
   printf 'Container: %s\nState volume: %s\n' "$container" "$volume" >&2
   local client_rc=0 client_pid
+  BOX_AUTH_CONTAINER_ATTEMPTED=1
   # Background + wait keeps launcher-only signals actionable while preserving stdin.
   "${docker_cmd[@]}" "${args[@]}" <&0 &
   client_pid=$!

@@ -31,13 +31,54 @@ and `BOX_<stem>_ALLOW_FALLBACK=0` forbids fallback. Shell runs are explicit-only
 
 `lib/tools.sh` declares harness identity, fixed adapter files, source versus
 installed pin names, artifact source/format/role/destination/lifecycle/mode/owner/
-consumers, state scope/root/override/runtime/mode/reset consequences, and the
+consumers, state scope/root/override/runtime/mode/reset consequences, auth
+class (`auth` exactly once per harness, `non-auth` otherwise), auth-policy
+scope, harness auth fallback (`default_scope`: Muse `global`, OpenCode and
+Codex `project`), declared native storage adapter, and envelope schema
+version, and the
 volume-naming `state_prefix` (distinct from the container `network`; OpenCode
 uses `box-o` for the network and `box-o-v2` for state). Records
 are literal data. Validation rejects escaping paths, symlinked sources, duplicate
 destinations, pin keys, and `state_prefix` values, orphan records, missing
-build/host/validation consumers, and a missing or non-`/persist` canonical
-`volume` state. Source config/policy directories are inventoried recursively.
+build/host/validation consumers, a missing or non-`/persist` canonical
+`volume` state, missing/duplicate auth records, bad auth adapters/scopes/
+schemas, and orphan auth fields on non-auth states. Source config/policy directories are inventoried recursively.
+
+### 3a. Auth state, policy, and canonical store
+
+Each harness declares exactly one selectable `auth` state (`class=auth`,
+`scope=auth-policy`, `kind=bind`, shared protected root `.config/box/auth`
+overridden by `BOX_AUTH_ROOT`, runtime `/run/box-auth`, mode 700, reset
+`auth-canonical-only`). `lib/state.sh` is the authoritative identity/location
+resolver (workspace discovery stays in `lib/launcher.sh`); `lib/auth.sh` owns
+policy resolution, canonical objects, leases, bindings, migration gates, and
+adapter-backed projection. Shared code dispatches on declared storage
+mechanics and registry fields, never on harness names.
+
+Effective scope precedence (highest first): harness runtime scope
+(`BOX_M_AUTH_SCOPE`/`BOX_O_AUTH_SCOPE`/`BOX_C_AUTH_SCOPE`, derived from the
+registry `git_prefix`), common `BOX_AUTH_SCOPE`, harness scope in
+`~/.config/box/state.toml` (or `BOX_STATE_CONFIG`), common
+`auth.default_scope` there, then the registry fallback. All supplied values
+are validated before resolution, including shadowed ones; set-but-empty,
+unknown, wrong-type, unknown-harness/key, and unsupported-schema values fail
+closed. `BOX_C_AUTH` selects credential forwarding only, never scope.
+Setup seeds the versioned policy file with no scopes and preserves it
+byte-for-byte; scope changes select a different identity and never copy or
+merge credentials.
+
+The canonical object holds auth material only (`identity.json`,
+`credentials.json` versioned envelope with revision + tombstone, `lease.json`,
+stable `lock`, plus explicit migration journals/rollback copies). Native
+homes/databases keep their existing scopes; the selected object directory
+alone mounts at `/run/box-auth`. While idle the canonical store is
+authoritative; during an active lease the recorded native projection is
+authoritative until collected. One active writer per auth identity (plus the
+native projection lock); busy launches fail promptly. Scope changes require
+an explicit transition (`BOX_AUTH_TRANSITION=fresh|use-existing` or explicit
+`auth-copy`); migration is an explicit journaled `auth-migrate`/`auth-copy`/
+`auth-init`/`auth-recover` operation (see operations). Dry-run reports
+non-secret policy/location metadata only.
 
 `harnesses/<id>/` owns native assets, launch behavior, upstream resolver,
 validator, optional install adapter, and native verification partials. Shared
@@ -149,8 +190,9 @@ latest installed defaults (or `BOX_M_CONFIG`, `BOX_O_CONFIG`, `BOX_C_CONFIG`).
 Git discovery ignores inherited Git controls and finds the nearest root. An
 explicit `--project-root PATH` selects an ancestor for non-Git trees. The whole
 root mounts at `/workspace`; the client starts in the corresponding subdirectory.
-Preflight checks apply to the mounted tree. State identity still hashes the
-physical launch directory, preserving existing homes and volumes.
+Preflight checks apply to the mounted tree. State identity hashes the physical selected workspace root. Subdirectories
+share its home and volume; older subdirectory identities remain discoverable
+for explicit migration.
 
 Registry `directory_configs` declares recognized locations in precedence order.
 Native Codex trust, profiles and project field restrictions remain authoritative;
@@ -160,3 +202,28 @@ settings after merging. Removing a directory override restores inheritance.
 Preferences saved in a UI do not override defaults on later launches. Existing
 resumed sessions retain native state; configuration governs startup and new
 session defaults. Dry-run lists paths and precedence, without contents or writes.
+
+Native state descriptors include optional declarative `leaf` and `volume_prefix`
+fields. `leaf` names a project home below its physical-project shard;
+`volume_prefix` names an explicitly registered historical volume family.
+OpenCode's v1 family is inventoried for explicit removal and is never imported.
+Production canonical volume names and auth-envelope schema 1 remain unchanged.
+
+Launch identity hashing/volume naming now call `state.sh`. Live launches retain
+non-secret native descriptor/root records under `state-index/native/<harness>`.
+Inventory re-resolves those records, including historical physical paths, before
+removal. They do not authorize arbitrary paths. A harness lifecycle lock is
+shared by live launches/auth operations and exclusive during full removal or
+code uninstall; auth/projection locks continue to enforce one writer per identity.
+
+Image contract 2 adds durable `reserved`, `preparing` and `projected` lease
+phases. Preparation is recorded before native auth mutation. Dead unused
+reservations preserve canonical/legacy bytes; interrupted preparation is
+collected before stale canonical credentials may be reused.
+
+Tests may explicitly set `BOX_TEST_PROJECT_HASH` to the resolver's physical
+project hash. This selects project-qualified native fixtures inside one test
+namespace while retaining one test-global auth identity. Default PR #2 test
+volume/home formulas are retained when this selector is unset; empty/malformed
+selectors fail closed. All test volume/home/cleanup formulas remain in
+`test-state.sh`.

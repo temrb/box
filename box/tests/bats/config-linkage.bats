@@ -66,9 +66,8 @@ load helpers
   [[ "$output" == *"unknown tool id"* ]]
 }
 
-@test "image assert warns and skips pin checks on explicit override" {
-  # docker.sh override path: UID/GID still enforced, version + integrity
-  # label checks skipped with a single WARNING (pinned offline via stub).
+@test "explicit image overrides cannot bypass pinned native versions" {
+  # A different tag still must satisfy the installed adapter/version contract.
   vf="$TEST_TMP/version-muse-override.env"
   make_muse_version_file "$vf"
   box_load_version_file "$vf" "$(box_tool_field muse version_format)" $(box_tool_field muse pin_keys)
@@ -76,12 +75,12 @@ load helpers
   stub="$TEST_TMP/stub-docker-override"
   {
     printf '#!/bin/bash\n'
-    printf 'printf "%%s\\n" %q\n' "$host_uid:$host_gid|WRONG-VERSION"
+    printf 'printf "%%s\\n" %q\n' "$host_uid:$host_gid|WRONG-VERSION|3"
   } >"$stub"
   chmod +x -- "$stub"
   docker_cmd=("$stub")
   run box_assert_image "some-image:override" "$ver" "$vf" muse 1
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   [[ "$output" == *"explicit image override"* ]]
   [[ "$output" == *"some-image:override"* ]]
   # Without the override flag the same label mismatch fails closed.
@@ -106,7 +105,7 @@ load helpers
     printf 'printf "%%s\\n" "$*" >>%q\n' "$log"
     printf 'n=$(wc -l <%q)\n' "$log"
     printf 'if [ "$n" -eq 1 ]; then printf "%%s\\n" %q; else cat -- %q; fi\n' \
-      "$host_uid:$host_gid|$ver" "$payload"
+      "$host_uid:$host_gid|$ver|3" "$payload"
   } >"$stub"
   chmod +x -- "$stub"
   printf '%s\n' "${box_file_pin[MUSE_SHA256_AMD64]}|${box_file_pin[MUSE_SHA256_ARM64]}" >"$payload"
@@ -122,6 +121,16 @@ load helpers
   run box_assert_image "some-image:tag" "$ver" "$vf" muse 0
   [ "$status" -ne 0 ]
   [[ "$output" == *"org.meta.muse.box.sha256-arm64"* ]]
+  # The same-version integrity mismatch also refuses an explicit override.
+  : >"$log"
+  run box_assert_image "some-image:override" "$ver" "$vf" muse 1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"org.meta.muse.box.sha256-arm64"* ]]
+  # Matching pinned artifacts are accepted under another tag.
+  : >"$log"
+  printf '%s\n' "${box_file_pin[MUSE_SHA256_AMD64]}|${box_file_pin[MUSE_SHA256_ARM64]}" >"$payload"
+  run box_assert_image "some-image:override" "$ver" "$vf" muse 1
+  [ "$status" -eq 0 ]
 }
 
 @test "registry networks and allowlist feed all launchers (no literals)" {
@@ -508,4 +517,20 @@ PYINNER
     [[ "$version_file" == "${!vf_var}" ]] || { echo "$id: version_file mismatch: $version_file != ${!vf_var}"; return 1; }
     ( set -u; : "$version_file" ) || { echo "$id: version_file unbound under set -u"; return 1; }
   done
+}
+
+@test "explicit image override still rejects a missing auth contract" {
+  vf="$TEST_TMP/version-muse.env"
+  make_muse_version_file "$vf"
+  box_load_version_file "$vf" "$(box_tool_field muse version_format)" $(box_tool_field muse pin_keys)
+  stub="$TEST_TMP/old-image-docker"
+  {
+    printf '#!/bin/bash\n'
+    printf 'printf "%%s\\n" %q\n' "$host_uid:$host_gid|$box_file_version|<no value>"
+  } >"$stub"
+  chmod +x "$stub"
+  docker_cmd=("$stub")
+  run box_assert_image old-image "$box_file_version" "$vf" muse 1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"auth-supervisor contract"* ]]
 }

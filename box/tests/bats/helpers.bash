@@ -26,7 +26,8 @@ setup() {
   # ambient BOX_TEST_STATE_NS/BOX_TEST_TASK_ROOT would flip every identity
   # derivation into test mode, so clear them here; tests that need them
   # export their own after setup().
-  unset BOX_TEST_STATE_NS BOX_TEST_TASK_ROOT BOX_TEST_REAL_HOME
+  unset BOX_TEST_STATE_NS BOX_TEST_TASK_ROOT BOX_TEST_REAL_HOME BOX_TEST_PROJECT_HASH
+  unset BOX_AUTH_SCOPE BOX_M_AUTH_SCOPE BOX_O_AUTH_SCOPE BOX_C_AUTH_SCOPE BOX_STATE_CONFIG BOX_AUTH_ROOT
   # shellcheck source=../../lib/preflight.sh
   source "$BUNDLE_DIR/lib/preflight.sh"
   # shellcheck source=../../lib/tools.sh
@@ -47,6 +48,14 @@ setup() {
   source "$BUNDLE_DIR/lib/config-file.sh"
   # shellcheck source=../../lib/install.sh
   source "$BUNDLE_DIR/lib/install.sh"
+  # shellcheck source=../../lib/auth.sh
+  source "$BUNDLE_DIR/lib/auth.sh"
+  # shellcheck source=../../lib/state.sh
+  source "$BUNDLE_DIR/lib/state.sh"
+  # shellcheck source=../../lib/supervisor.sh
+  source "$BUNDLE_DIR/lib/supervisor.sh"
+  # shellcheck source=../../lib/auth-ops.sh
+  source "$BUNDLE_DIR/lib/auth-ops.sh"
 
   umask 022
   # shellcheck source=../../harnesses/muse/native.sh
@@ -81,6 +90,10 @@ setup() {
   BOX_O_GIT_NAME='Test User'
   BOX_O_GIT_EMAIL='test@example.com'
   export BOX_M_GIT_NAME BOX_M_GIT_EMAIL BOX_O_GIT_NAME BOX_O_GIT_EMAIL
+  # Auth suites declare an explicit daemon function fixture. Inject its
+  # transport directly; executable Docker fixtures still exercise isolated
+  # CLI configuration and the fixed local Engine address.
+  if declare -F docker >/dev/null; then docker_cmd=(docker); fi
 }
 
 teardown() {

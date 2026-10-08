@@ -9,6 +9,55 @@
 # shared code — edit verify.d/ partials and run gen-verify.sh instead).
 BUNDLE_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
+# Transport operator inputs as literal environment data, never shell source.
+# Freeze recursive command-line values so dollar-shaped paths stay literal.
+override HARNESS := $(value HARNESS)
+export HARNESS
+override PROJECT := $(value PROJECT)
+export PROJECT
+override RUNTIME := $(value RUNTIME)
+export RUNTIME
+override DB_PATH := $(value DB_PATH)
+export DB_PATH
+override SRC_SCOPE := $(value SRC_SCOPE)
+export SRC_SCOPE
+override SRC_HASH := $(value SRC_HASH)
+export SRC_HASH
+override DST_SCOPE := $(value DST_SCOPE)
+export DST_SCOPE
+override DST_HASH := $(value DST_HASH)
+export DST_HASH
+override NATIVE := $(value NATIVE)
+export NATIVE
+override FULL := $(value FULL)
+export FULL
+override REMOVE_CODE := $(value REMOVE_CODE)
+export REMOVE_CODE
+override INCLUDE_GLOBAL := $(value INCLUDE_GLOBAL)
+export INCLUDE_GLOBAL
+override ALL_PROJECTS := $(value ALL_PROJECTS)
+export ALL_PROJECTS
+override EXECUTE := $(value EXECUTE)
+export EXECUTE
+override PROVIDER_FILE := $(value PROVIDER_FILE)
+export PROVIDER_FILE
+override AUTH_ROOT := $(value AUTH_ROOT)
+export AUTH_ROOT
+override HISTORICAL := $(value HISTORICAL)
+export HISTORICAL
+override KEEP_AUTH := $(value KEEP_AUTH)
+export KEEP_AUTH
+override MUSE_BINARY := $(value MUSE_BINARY)
+export MUSE_BINARY
+override OPENCODE_BINARY := $(value OPENCODE_BINARY)
+export OPENCODE_BINARY
+override OPENCODE_ARCHIVE := $(value OPENCODE_ARCHIVE)
+export OPENCODE_ARCHIVE
+override CODEX_BINARY := $(value CODEX_BINARY)
+export CODEX_BINARY
+override CODEX_ARCHIVE := $(value CODEX_ARCHIVE)
+export CODEX_ARCHIVE
+
 # Tool ids, build-stems, and config names come from the registry (single
 # source; zero per-tool lines below). Stems are the launcher suffixes
 # (box-m -> m), so `make build-<stem>` tracks registry launchers for current
@@ -52,7 +101,7 @@ CONFIG_FILES := $(sort $(TOOL_CONFIGS))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build pin-check verify-static verify-native verify-config verify-shell verify-python verify-generated verify-pins-generated pins test test-live setup clean regen-validation update update-check FORCE
+.PHONY: help build pin-check verify-static verify-native verify-native-auth-host verify-config verify-shell verify-python verify-generated verify-pins-generated pins test test-live setup clean regen-validation update update-check auth-migrate auth-copy auth-init auth-recover state-plan state-remove state-discover uninstall-code project-reset FORCE
 
 help:
 	@echo 'Usage: make [target]'
@@ -63,6 +112,7 @@ help:
 	@echo '  test-live      run the live-daemon bats suite (tests/bats-live/; needs Engine)'
 	@echo '  verify-static  syntax + configs + generated + pins + shellcheck + bats (fast-first)'
 	@echo '  verify-native-opencode  production OpenCode runsc/runc policy and state checks'
+	@echo '  verify-native-auth-host  pinned synthetic native auth storage (explicit binaries/archive; no Docker/account)'
 	@echo '  verify-native  disposable runsc/runc native evidence; fails on unmet account/policy gates'
 	@echo '  verify-config  validate JSON/TOML configuration documents'
 	@echo '  verify-shell   bash -n over shell sources and verification partials'
@@ -76,6 +126,15 @@ help:
 	@echo '  update-check   report current -> latest per tool; change nothing'
 	@echo '  regen-validation  regenerate validation/resolved-config.json (needs Engine + image)'
 	@echo '  clean          remove all images for your UID/GID (keeps volumes)'
+	@echo '  auth-migrate   migrate legacy native auth to the selected canonical identity (HARNESS=<id> PROJECT=<path> [DB_PATH=<file>])'
+	@echo '  auth-copy      copy one canonical auth identity to another (HARNESS=<id> SRC_SCOPE=<s> [SRC_HASH=<h>] DST_SCOPE=<s> [DST_HASH=<h>])'
+	@echo '  auth-init      acknowledge a fresh auth identity without importing (HARNESS=<id> PROJECT=<path>)'
+	@echo '  auth-recover   recover an interrupted auth lease/projection (HARNESS=<id> PROJECT=<path> [NATIVE=<file>] [DB_PATH=<file>])'
+	@echo '  state-plan     print non-secret auth/non-auth descriptors (HARNESS=<id> PROJECT=<path>)'
+	@echo '  state-remove   remove exact auth; FULL=1 includes recorded native state/templates ([REMOVE_CODE=1] [PROVIDER_FILE=<path>])'
+	@echo '  state-discover record explicit native coordinates (HARNESS=<id> PROJECT=<path> [HISTORICAL=1])'
+	@echo '  uninstall-code remove registered installed code, preserving all state (HARNESS=<id> [EXECUTE=1])'
+	@echo '  project-reset  inventory (and with EXECUTE=1 remove) project state (HARNESS=<id> PROJECT=<path> [KEEP_AUTH=1])'
 
 # One pattern builds every tool: the stem resolves box-<stem> to its
 # registry id (fail-closed on unknown stems). FORCE keeps the recipe
@@ -143,8 +202,64 @@ verify-static:
 setup:
 	bash "$(BUNDLE_DIR)/setup.sh"
 
+# Resolver-backed auth lifecycle (one shared operational entrypoint;
+# inspection stays available through launcher dry-run).
+auth-migrate: FORCE
+	@test -n "$${HARNESS}" || { echo 'auth-migrate needs HARNESS=<id> PROJECT=<path> [DB_PATH=<file>]' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'auth-migrate needs HARNESS=<id> PROJECT=<path> [DB_PATH=<file>]' >&2; exit 2; }
+	$(if $(strip $(RUNTIME)),BOX_AUTH_RUNTIME="$${RUNTIME}") BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" migrate "$${HARNESS}" "$${PROJECT}" $(if $(strip $(DB_PATH)),--db-path "$${DB_PATH}")
+
+auth-copy: FORCE
+	@test -n "$${HARNESS}" || { echo 'auth-copy needs HARNESS=<id> SRC_SCOPE=<global|project> [SRC_HASH=<hash>] DST_SCOPE=<global|project> [DST_HASH=<hash>]' >&2; exit 2; }
+	@test -n "$${SRC_SCOPE}" || { echo 'auth-copy needs HARNESS=<id> SRC_SCOPE=<global|project> [SRC_HASH=<hash>] DST_SCOPE=<global|project> [DST_HASH=<hash>]' >&2; exit 2; }
+	@test -n "$${DST_SCOPE}" || { echo 'auth-copy needs HARNESS=<id> SRC_SCOPE=<global|project> [SRC_HASH=<hash>] DST_SCOPE=<global|project> [DST_HASH=<hash>]' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" copy "$${HARNESS}" "$${SRC_SCOPE}" "$${SRC_HASH}" "$${DST_SCOPE}" "$${DST_HASH}" $(if $(strip $(PROJECT)),--project "$${PROJECT}")
+
+auth-init: FORCE
+	@test -n "$${HARNESS}" || { echo 'auth-init needs HARNESS=<id> PROJECT=<path>' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'auth-init needs HARNESS=<id> PROJECT=<path>' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" init "$${HARNESS}" "$${PROJECT}"
+
+auth-recover: FORCE
+	@test -n "$${HARNESS}" || { echo 'auth-recover needs HARNESS=<id> PROJECT=<path> [NATIVE=<file>] [DB_PATH=<file>]' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'auth-recover needs HARNESS=<id> PROJECT=<path> [NATIVE=<file>] [DB_PATH=<file>]' >&2; exit 2; }
+	$(if $(strip $(RUNTIME)),BOX_AUTH_RUNTIME="$${RUNTIME}") BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" recover "$${HARNESS}" "$${PROJECT}" $(if $(strip $(NATIVE)),--native "$${NATIVE}") $(if $(strip $(DB_PATH)),--db-path "$${DB_PATH}")
+
+state-plan: FORCE
+	@test -n "$${HARNESS}" || { echo 'state-plan needs HARNESS=<id> PROJECT=<path>' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'state-plan needs HARNESS=<id> PROJECT=<path>' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" plan "$${HARNESS}" "$${PROJECT}"
+
+state-remove: FORCE
+	@test -z "$(filter-out 0 1,$(FULL) $(REMOVE_CODE) $(INCLUDE_GLOBAL) $(ALL_PROJECTS) $(EXECUTE))" || { echo "Lifecycle flags must be 0, 1, or omitted." >&2; exit 2; }
+	@test -n "$${HARNESS}" || { echo 'state-remove needs HARNESS=<id> PROJECT=<path> [EXECUTE=1]' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'state-remove needs HARNESS=<id> PROJECT=<path> [EXECUTE=1]' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" $(if $(filter 1,$(FULL)),remove-full,remove-auth) "$${HARNESS}" "$${PROJECT}" $(if $(filter 1,$(FULL)),$(if $(filter 1,$(REMOVE_CODE)),--code) $(if $(strip $(PROVIDER_FILE)),--provider "$${PROVIDER_FILE}"),$(if $(filter 1,$(INCLUDE_GLOBAL)),--include-global) $(if $(filter 1,$(ALL_PROJECTS)),--all-projects) $(if $(strip $(AUTH_ROOT)),--root "$${AUTH_ROOT}")) $(if $(filter 1,$(EXECUTE)),--execute)
+
+state-discover: FORCE
+	@test -z "$(filter-out 0 1,$(HISTORICAL))" || { echo "Lifecycle flags must be 0, 1, or omitted." >&2; exit 2; }
+	@test -n "$${HARNESS}" -a -n "$${PROJECT}" || { echo 'state-discover needs HARNESS and PROJECT (explicit native root overrides accepted)' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" discover "$${HARNESS}" "$${PROJECT}" $(if $(filter 1,$(HISTORICAL)),--historical)
+
+uninstall-code: FORCE
+	@test -z "$(filter-out 0 1,$(EXECUTE))" || { echo "Lifecycle flags must be 0, 1, or omitted." >&2; exit 2; }
+	@test -n "$${HARNESS}" || { echo 'uninstall-code needs HARNESS=<id> [EXECUTE=1]' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" uninstall-code "$${HARNESS}" $(if $(filter 1,$(EXECUTE)),--execute)
+
+project-reset: FORCE
+	@test -z "$(filter-out 0 1,$(KEEP_AUTH) $(EXECUTE))" || { echo "Lifecycle flags must be 0, 1, or omitted." >&2; exit 2; }
+	@test -n "$${HARNESS}" || { echo 'project-reset needs HARNESS=<id> PROJECT=<path> [KEEP_AUTH=1] [EXECUTE=1]' >&2; exit 2; }
+	@test -n "$${PROJECT}" || { echo 'project-reset needs HARNESS=<id> PROJECT=<path> [KEEP_AUTH=1] [EXECUTE=1]' >&2; exit 2; }
+	BOX_TOOL=make BUNDLE_DIR="$(BUNDLE_DIR)" bash "$(BUNDLE_DIR)/lib/auth-ops.sh" reset "$${HARNESS}" "$${PROJECT}" $(if $(filter 1,$(KEEP_AUTH)),--keep-auth) $(if $(filter 1,$(EXECUTE)),--execute)
+
 verify-native:
 	bash "$(BUNDLE_DIR)/tests/native/acceptance.sh"
+
+verify-native-auth-host:
+	@test -n "$${MUSE_BINARY}" -a -n "$${OPENCODE_BINARY}" -a -n "$${OPENCODE_ARCHIVE}" -a -n "$${CODEX_BINARY}" -a -n "$${CODEX_ARCHIVE}" || { echo 'Provide MUSE_BINARY, OPENCODE_BINARY, OPENCODE_ARCHIVE, CODEX_BINARY and CODEX_ARCHIVE (verified against registry pins).' >&2; exit 2; }
+	python3 -I "$(BUNDLE_DIR)/tests/native/muse-auth-fixture.py" --binary "$${MUSE_BINARY}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
+	python3 -I "$(BUNDLE_DIR)/tests/native/opencode-auth-fixture.py" --binary "$${OPENCODE_BINARY}" --archive "$${OPENCODE_ARCHIVE}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
+	python3 -I "$(BUNDLE_DIR)/tests/native/codex-auth-fixture.py" --binary "$${CODEX_BINARY}" --archive "$${CODEX_ARCHIVE}" --scratch-root "$${BOX_TEST_PROJECT_ROOT:-$$HOME}"
 
 .PHONY: verify-native-opencode
 verify-native-opencode:

@@ -75,7 +75,7 @@ box_test_validate_ns() {
 # one of the two) is a hard failure via box_test_require_vars, never a
 # silent production run.
 box_test_in_test_mode() {
-  [[ -n "${BOX_TEST_STATE_NS:-}" || -n "${BOX_TEST_TASK_ROOT:-}" ]]
+  [[ -n "${BOX_TEST_STATE_NS+x}" || -n "${BOX_TEST_TASK_ROOT+x}" || -n "${BOX_TEST_PROJECT_HASH+x}" ]]
 }
 
 # Print the validated task root. The root must already exist (drivers create
@@ -136,16 +136,30 @@ box_test_volume() {
     || die 'Internal error: test volume UID/GID must be non-zero numbers.'
   prefix=$(box_tool_field "$id" state_prefix)
   [[ "$prefix" =~ ^[a-z][a-z0-9-]*$ ]] || die "Internal error: invalid state prefix: $id"
-  printf 'box-test-%s-%s-u%s-g%s' "$ns" "$prefix" "$uid" "$gid"
+  if [[ -n "${BOX_TEST_PROJECT_HASH+x}" ]]; then
+    [[ "$BOX_TEST_PROJECT_HASH" =~ ^[0-9a-f]{20}$ ]] || die 'Invalid test fixture project hash.'
+    printf 'box-test-%s-%s-u%s-g%s-p%s' "$ns" "$prefix" "$uid" "$gid" "$BOX_TEST_PROJECT_HASH"
+  else
+    printf 'box-test-%s-%s-u%s-g%s' "$ns" "$prefix" "$uid" "$gid"
+  fi
 }
 
 # The single Codex-home resolver: exactly <task-root>/<ns>/codex-home.
 # Usage: box_test_codex_home [task-root] [ns]
-box_test_codex_home() {
-  local task_root=${1:-${BOX_TEST_TASK_ROOT:-}} ns=${2:-${BOX_TEST_STATE_NS:-}}
+box_test_native_home() {
+  local leaf=$1 task_root=${2:-${BOX_TEST_TASK_ROOT:-}} ns=${3:-${BOX_TEST_STATE_NS:-}}
+  [[ "$leaf" =~ ^[a-z][a-z0-9-]*$ ]] || die 'Invalid native fixture leaf.'
   box_test_task_root "$task_root" >/dev/null
   box_test_validate_ns "$ns" >/dev/null
-  printf '%s/%s/codex-home' "$task_root" "$ns"
+  if [[ -n "${BOX_TEST_PROJECT_HASH+x}" ]]; then
+    BOX_TEST_TASK_ROOT=$task_root box_test_fixture_dir "$ns" "$BOX_TEST_PROJECT_HASH" "$leaf"
+  else
+    printf '%s/%s/%s' "$task_root" "$ns" "$leaf"
+  fi
+}
+
+box_test_codex_home() {
+  box_test_native_home "$(box_state_field codex home leaf)" "$@"
 }
 
 # Derive an independent capture sub-namespace: <parent>-cap-<8hex>.
@@ -170,7 +184,8 @@ box_test_capture_ns() {
 # disposable task root. Generic over the registry (no harness branches): the
 # test Codex root passes because drivers point it under the task root, while
 # any leftover production BOX_C_STATE_ROOT / BOX_C_STATE_DIR /
-# BOX_M_PERSIST_DIR fails closed here.
+# BOX_M_PERSIST_DIR / BOX_AUTH_ROOT fails closed here. BOX_STATE_CONFIG, when
+# set, must also live inside the task root and never select production state.
 box_test_state_overrides_location_check() {
   local id state override raw resolved task_resolved
   box_test_task_root >/dev/null
@@ -178,24 +193,40 @@ box_test_state_overrides_location_check() {
   for id in $box_tool_ids; do
     for state in $(box_tool_field "$id" states); do
       for override in $(box_state_field "$id" "$state" override); do
-        raw=${!override:-}
-        [[ -n "$raw" ]] || continue
+        [[ -n "${!override+x}" ]] || continue
+        raw=${!override}
+        [[ -n "$raw" && "$raw" == /* ]] || die 'Test state overrides must be nonempty absolute paths.'
         resolved=$(realpath -m -- "$raw") || die "Cannot resolve $override."
         case "$resolved" in
           "$task_resolved"/*) ;;
           *) die "$override must point inside BOX_TEST_TASK_ROOT in test runs (got: $raw)." ;;
         esac
+        box_plan_directory "$raw" >/dev/null || return 1
       done
     done
   done
+  if [[ -n "${BOX_STATE_CONFIG:-}" ]]; then
+    resolved=$(realpath -m -- "$BOX_STATE_CONFIG") || die 'Cannot resolve BOX_STATE_CONFIG.'
+    case "$resolved" in
+      "$task_resolved"/*) ;;
+      *) die 'BOX_STATE_CONFIG must point inside BOX_TEST_TASK_ROOT in test runs.' ;;
+    esac
+  fi
+  # Scope overrides (BOX_AUTH_SCOPE, <PREFIX>_AUTH_SCOPE) are value-only;
+  # they carry no filesystem location and need no containment check here.
+  # Values themselves are validated by box_auth_policy_resolve before any
+  # state access.
 }
 
 # Authorize a test bind root: it must live under the disposable task root
 # and must never equal (or sit under) a production default root. Pure path
-# logic; creates nothing, contacts nothing.
+# logic; creates nothing, contacts nothing. Production roots derive from the
+# registry (all bind roots plus the shared auth root and state index),
+# never a second hardcoded list.
 # Usage: box_test_guard_bind_root <candidate-path>
 box_test_guard_bind_root() {
   local path=${1:-} task_resolved path_resolved real_home prod prod_resolved
+  local id state root override raw
   [[ -n "$path" ]] || die 'Internal error: missing test bind-root candidate.'
   [[ -n "${BOX_TEST_TASK_ROOT:-}" ]] || die 'BOX_TEST_TASK_ROOT is required to authorize test bind roots.'
   task_resolved=$(realpath -m -- "$BOX_TEST_TASK_ROOT") || die 'Cannot resolve BOX_TEST_TASK_ROOT.'
@@ -206,13 +237,80 @@ box_test_guard_bind_root() {
   esac
   real_home=${BOX_TEST_REAL_HOME:-$HOME}
   [[ -n "$real_home" ]] || die 'Cannot determine home for production-root comparison.'
-  for prod in "$real_home/.config/box-c/global" "$real_home/.config/box-c/projects" "$real_home/.config/box-m/muse-config"; do
+  local -a prods=("$real_home/.config/box")
+  for id in $box_tool_ids; do
+    for state in $(box_tool_field "$id" states); do
+      [[ "$(box_state_field "$id" "$state" kind)" == bind ]] || continue
+      root=$(box_state_field "$id" "$state" root)
+      prods+=("$real_home/$root")
+      for override in $(box_state_field "$id" "$state" override); do
+        # Only production defaults participate here; test runs must leave
+        # overrides unset or inside the task root (checked separately).
+        case "$override" in BOX_AUTH_ROOT|BOX_STATE_CONFIG) continue ;; esac
+        raw=${!override:-}
+        [[ -n "$raw" ]] || continue
+        # Overrides inside the disposable task root are test coordinates,
+        # not production roots. Defaults above still reject collisions.
+        prod_resolved=$(realpath -m -- "$raw") || die 'Cannot resolve state override.'
+        case "$prod_resolved" in "$task_resolved"/*) continue ;; esac
+        prods+=("$raw")
+      done
+    done
+  done
+  for prod in "${prods[@]}"; do
     prod_resolved=$(realpath -m -- "$prod") || die 'Cannot resolve production root.'
     [[ "$path_resolved" != "$prod_resolved" && "$path_resolved" != "$prod_resolved"/* ]] \
       || die "Test state root must never equal a production root (got: $path)."
     [[ "$task_resolved" != "$prod_resolved" && "$task_resolved" != "$prod_resolved"/* ]] \
       || die 'BOX_TEST_TASK_ROOT must not live inside a production state root.'
   done
+}
+
+# Test auth directory: namespace-local canonical auth.
+# Usage: box_test_auth_dir <harness> <ns> <uid> <global|project> [project-hash]
+box_test_auth_dir() {
+  local id=${1:-} ns=${2:-} uid=${3:-} scope=${4:-} hash=${5:-}
+  local troot
+  box_require_tool "$id"
+  box_test_validate_ns "$ns" >/dev/null
+  [[ "$uid" =~ ^[0-9]+$ ]] || die 'Invalid test auth UID.'
+  ((10#$uid != 0)) || die 'Invalid test auth UID.'
+  case "$scope" in global|project) ;; *) die 'Invalid test auth scope.';; esac
+  troot=$(box_test_task_root "${BOX_TEST_TASK_ROOT:-}") || return 1
+  if [[ "$scope" == global ]]; then
+    printf '%s/%s/auth/%s/u%s/global' "$troot" "$ns" "$id" "$uid"
+  else
+    [[ "$hash" =~ ^[0-9a-f]{20}$ ]] || die 'Invalid project hash for test project auth.'
+    printf '%s/%s/auth/%s/u%s/projects/%s' "$troot" "$ns" "$id" "$uid" "$hash"
+  fi
+}
+
+# Project-qualified fixture identity for two-project scope tests: an
+# independent non-auth store inside one namespace without inlining a new
+# naming formula in callers.
+# Usage: box_test_fixture_dir <ns> <project-hash> <leaf>
+box_test_fixture_dir() {
+  local ns=${1:-} hash=${2:-} leaf=${3:-fixture} troot
+  box_test_validate_ns "$ns" >/dev/null
+  [[ "$hash" =~ ^[0-9a-f]{20}$ ]] || die 'Invalid fixture project hash.'
+  [[ "$leaf" =~ ^[A-Za-z0-9_.-]+$ ]] || die 'Invalid fixture leaf.'
+  troot=$(box_test_task_root "${BOX_TEST_TASK_ROOT:-}") || return 1
+  printf '%s/%s/fixtures/%s/%s' "$troot" "$ns" "$hash" "$leaf"
+}
+
+# Authorize one test auth cleanup candidate: exact resolver identity only.
+# Usage: box_test_guard_auth_cleanup <candidate> <harness> <ns> <uid> <global|project> [hash]
+box_test_guard_auth_cleanup() {
+  local candidate=${1:-} id=${2:-} ns=${3:-} uid=${4:-} scope=${5:-} hash=${6:-} expected
+  [[ -n "$candidate" ]] || die 'Refusing cleanup of an empty auth path.'
+  case "$candidate" in *'*'*|*'?'*|*'['*) die 'Refusing wildcard auth cleanup.';; esac
+  if [[ "$scope" == global ]]; then
+    expected=$(box_test_auth_dir "$id" "$ns" "$uid" "$scope") || die 'Refusing auth cleanup: cannot resolve owned identity.'
+  else
+    [[ $# -eq 6 ]] || die 'Internal error: project auth cleanup needs a project hash.'
+    expected=$(box_test_auth_dir "$id" "$ns" "$uid" "$scope" "$hash") || die 'Refusing auth cleanup: cannot resolve owned identity.'
+  fi
+  [[ "$candidate" == "$expected" ]] || die "Refusing auth cleanup outside owned test identity (got: $candidate)."
 }
 
 # Authorize one cleanup candidate: it must exactly equal the resolver
@@ -236,7 +334,7 @@ box_test_guard_cleanup() {
 # the result; any failure dies on stderr with exit 1 before Docker exists.
 box_test_cli() {
   local sub=${1:-}
-  [[ -n "$sub" ]] || die 'Usage: test-state.sh <new-ns|volume|id-for-prefix|codex-home|capture-ns|guard-bind-root|guard-cleanup|validate-ns|task-root> ...'
+  [[ -n "$sub" ]] || die 'Usage: test-state.sh <new-ns|volume|id-for-prefix|codex-home|capture-ns|guard-bind-root|guard-cleanup|validate-ns|task-root|auth-dir|fixture-dir|guard-auth-cleanup> ...'
   shift
   case "$sub" in
     new-ns) [[ $# -le 1 ]] || die 'Usage: test-state.sh new-ns [12hex]'; box_test_new_ns "${1:-}" ;;
@@ -248,6 +346,9 @@ box_test_cli() {
     guard-cleanup) [[ $# -eq 5 ]] || die 'Usage: test-state.sh guard-cleanup <candidate> <harness-id> <ns> <uid> <gid>'; box_test_guard_cleanup "$@" ;;
     validate-ns) [[ $# -le 1 ]] || die 'Usage: test-state.sh validate-ns [ns]'; box_test_validate_ns "${1:-}" ;;
     task-root) [[ $# -le 1 ]] || die 'Usage: test-state.sh task-root [path]'; box_test_task_root "${1:-}" ;;
+    auth-dir) [[ $# -eq 4 || $# -eq 5 ]] || die 'Usage: test-state.sh auth-dir <harness> <ns> <uid> <scope> [hash]'; box_test_auth_dir "$@" ;;
+    fixture-dir) [[ $# -eq 3 ]] || die 'Usage: test-state.sh fixture-dir <ns> <hash> <leaf>'; box_test_fixture_dir "$@" ;;
+    guard-auth-cleanup) [[ $# -eq 5 || $# -eq 6 ]] || die 'Usage: test-state.sh guard-auth-cleanup <candidate> <harness> <ns> <uid> <scope> [hash]'; box_test_guard_auth_cleanup "$@" ;;
     *) die "Unknown test-state command: $sub" ;;
   esac
 }

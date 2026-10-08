@@ -247,3 +247,28 @@ load helpers
 # The concurrent-install test needs a reachable Docker Engine; it lives in
 # tests/bats-live/setup-concurrent.bats (make test-live). tests/bats/ stays
 # daemon-free so verify-static needs no daemon.
+
+@test "state policy seeds versioned with no scopes and preserves reruns" {
+  policy="$TEST_TMP/state.toml"
+  run box_install_state_policy "$policy"
+  [ "$status" -eq 0 ]
+  [ "$output" = "created" ]
+  [ "$(stat -c %a -- "$policy")" = "600" ]
+  box_config_validate "$policy" toml
+  run box_install_state_policy "$policy"
+  [ "$status" -eq 0 ]
+  [ "$output" = "kept" ]
+  printf 'schema_version = 1\n\n[auth]\ndefault_scope = "project"\n' >"$policy"
+  before=$(sha256sum -- "$policy")
+  run box_install_state_policy "$policy"
+  [ "$status" -eq 0 ]
+  [ "$(sha256sum -- "$policy")" = "$before" ]
+}
+
+@test "state policy refuses symlinks and missing parents" {
+  ln -s "$TEST_TMP/target" "$TEST_TMP/policy-link"
+  run box_install_state_policy "$TEST_TMP/policy-link"
+  [ "$status" -ne 0 ]
+  run box_install_state_policy "$TEST_TMP/no-such-dir/state.toml"
+  [ "$status" -ne 0 ]
+}

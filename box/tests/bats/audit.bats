@@ -311,27 +311,42 @@ codex_fixture() {
 
 @test "Codex preparation resets preferences and preserves trust and state across restarts" {
   codex_fixture
-  box_docker_cli() { docker_cmd=(true); }
-  box_docker_exec() { exec {preferences_lock}>&-; }
-  source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
+  # Each launcher owns its EXIT collection trap in its own process.
+  audit_codex_launch() (
+    box_docker_cli() { docker_cmd=(true); }
+    box_docker_exec() { exec {preferences_lock}>&-; printf '%s\n' "${args[*]}"; }
+    source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
+  )
+  run audit_codex_launch
+  [ "$status" -eq 0 ]
+  h=$(box_state_project_hash "$project")
+  codex_home="$BOX_C_STATE_ROOT/$h/codex-home"
   native="$codex_home/config.toml"
   printf 'model = "account-preference"\n[projects."/workspace/🌱"]\ntrust_level = "trusted"\n' >"$native"
   chmod 600 "$native"
   printf 'session fixture' >"$codex_home/history.jsonl"
-  printf '{"synthetic":"auth"}' >"$codex_home/auth.json"
+  printf '{"OPENAI_API_KEY":"synthetic"}' >"$codex_home/auth.json"
   chmod 600 "$codex_home/auth.json"
+  docker() { return 0; }
+  docker_cmd=(docker)
+  run box_ops_migrate codex "$project"
+  [ "$status" -eq 0 ]
   sed -i 's/^model = .*/model = "refreshed-default"/' "$BOX_C_CONFIG"
-  source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
-  [[ " ${args[*]} " == *"src=$BOX_C_CONFIG,dst=/etc/codex/config.toml,readonly"* ]]
-  [ "$(box_config_get "$config" .model)" = refreshed-default ]
+  run audit_codex_launch
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"src=$BOX_C_CONFIG,dst=/etc/codex/config.toml,readonly"* ]]
+  [ "$(box_config_get "$BOX_C_CONFIG" .model)" = refreshed-default ]
   [[ "$(cat "$native")" == *'trust_level = "trusted"'* ]]
   [[ "$(cat "$native")" != *account-preference* ]]
   [[ "$(cat "$native.box-legacy")" == *account-preference* ]]
   [ "$(stat -c %a "$native.box-legacy")" = 600 ]
   [ "$(cat "$codex_home/history.jsonl")" = 'session fixture' ]
-  [ "$(cat "$codex_home/auth.json")" = '{"synthetic":"auth"}' ]
+  dir=$(box_auth_object_dir codex project "$host_uid" "$h")
+  jq -e '.payload.OPENAI_API_KEY == "synthetic"' "$dir/credentials.json"
+  [ ! -e "$codex_home/auth.json" ]
   : >"$native"
-  source "$BUNDLE_DIR/harnesses/codex/launch.sh" --shell -c true
+  run audit_codex_launch
+  [ "$status" -eq 0 ]
   [ ! -s "$native" ]
 }
 
@@ -341,7 +356,7 @@ codex_fixture() {
   unset BOX_C_CONFIG BOX_C_VERSION_FILE
   mkdir -p "$TEST_TMP/installed/lib" "$TEST_TMP/installed/harnesses"
   cp "$BUNDLE_DIR"/box-{m,o,c} "$TEST_TMP/installed/"
-  cp "$BUNDLE_DIR"/lib/*.sh "$TEST_TMP/installed/lib/"
+  cp "$BUNDLE_DIR"/lib/*.sh "$BUNDLE_DIR"/lib/*.py "$TEST_TMP/installed/lib/"
   for id in $box_tool_ids; do
     mkdir "$TEST_TMP/installed/harnesses/$id"
     cp "$BUNDLE_DIR/harnesses/$id/"*.sh "$TEST_TMP/installed/harnesses/$id/"
@@ -455,4 +470,17 @@ codex_fixture() {
   run bash "$BUNDLE_DIR/update-pins.sh" --check --only codex --opencode '../bad'
   [ "$status" -ne 0 ]
   [[ "$output" == *'--only cannot combine'* ]]
+}
+
+@test "Codex root aliases compare normalized coordinates and empty aliases refuse" {
+  _stub_dryrun_bundle
+  codex_fixture
+  export BOX_C_STATE_DIR="$BOX_C_STATE_ROOT/./"
+  run "$STUB_BUNDLE/box-c" --dry-run --version
+  [ "$status" -eq 0 ]
+  [ ! -e "$BOX_C_STATE_ROOT" ]
+  BOX_C_STATE_DIR= run "$STUB_BUNDLE/box-c" --dry-run --version
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must not be empty"* ]]
+  [ ! -e "$BOX_C_STATE_ROOT" ]
 }

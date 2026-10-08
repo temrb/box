@@ -1,0 +1,388 @@
+# Implementation progress — 2026-10-08
+
+## Policy, host filesystem and adapter continuation — 2026-10-08
+
+Preserved the existing dirty checkout and continued independent groundwork.
+No schema-2/contract-4 activation, account login, migration, deployment or
+production credential mutation was performed.
+
+- C02: scope/source now share one validated parse. Default state-config
+  ancestry is checked even when the file is absent; failed parsers publish no
+  partial result. Invalid shadowed fallback, helper-runtime and transition
+  selectors refuse. Codex root aliases compare normalized protected coordinates.
+  Removed the unused optional configuration getter.
+- C04: added `box/lib/host-fs.py` for bounded descriptor-relative no-follow
+  reads, unique-key JSON, fsynced atomic publication, stable nonblocking locks,
+  exact member/directory deletion and change detection. Reset journals, reset
+  member reads/removal and discovery reads use this API. Reset walks no longer
+  silently skip unreadable directories. File deletion records include change
+  time; older checkpoints without that evidence refuse automatic deletion.
+  Lock descriptors close on exec. Remaining auth/native/installation consumers
+  have not all been consolidated onto these primitives.
+- C04: added project hardlink inspection using two agreeing inode inventories.
+  Internal links pass; external links, unreadable/changing trees and nested
+  mounts refuse. Filename delimiters are data and file contents are not read.
+  Boundaries are one million entries and 256 levels. These checks do not protect
+  against a compromised invoking user or host root.
+- A03: all canonical adapters provide pure envelope validation. OpenCode no
+  longer needs an initialized scratch database for canonical copy/recovery
+  verification. Shared validation rejects duplicate JSON keys, invalid integer
+  revisions, unknown header authority, unsafe files and unsupported payloads.
+  This does not qualify SQLite mutation or complete native credential schemas.
+- R02: explicit image overrides no longer bypass native-version/artifact labels.
+  Immutable image-ID and exact native compatibility qualification remain open.
+- T01: added manual protected/default-branch `qualify-native` workflow and a
+  disposable runner driver with per-gate exits/log hashes and not-reached
+  records. No reusable account secrets are supplied. Runner/environment setup
+  and actual remote execution remain required.
+- Documentation: corrected stale Muse login/fallback help, workspace-root
+  identity text, host Python prerequisites, image override behavior, filesystem
+  bounds and qualification workflow operation.
+
+**U:** 125 policy/launcher/removal integration cases and 35 adapter/migration/
+workflow/filesystem cases passed in focused runs. The host filesystem driver
+passed 14 cases, including actual independent-process lock contention, SIGKILL
+release, stable inode retention and close-on-exec behavior. The existing Q06
+probe still passes five regressions and eight local observations. These do not
+establish production lifecycle recovery, power-loss or Docker failure behavior.
+
+**N:** Fresh official pinned Muse, OpenCode and Codex artifacts matched registry
+SHA256 pins. `make -C box verify-native-auth-host` passed on amd64 with disposable
+synthetic credentials and the new pure-verification calls. Native API-key
+storage, logout, adapter round-trip and refresh-shaped writes passed; synthetic
+OAuth/OpenCode rows remain distinct from real account/rotation/MCP qualification.
+Log: `/tmp/box-native-foundations.txt`. The downloaded artifacts and extracted
+binaries are private temporary inputs, not committed or shared image exports.
+
+**D gates attempted:** `make build` and both native acceptance Make targets
+refused because Docker is absent. `make test-live` returned zero with all four
+cases skipped for absent Docker/daemon; it supplies no Docker passing evidence.
+Logs: `/tmp/box-required-{build,live,opencode,native}.txt`.
+
+The initial static run overlapped active edits and exposed installed-fixture
+copies missing Python helpers, plus a cross-filesystem hardlink fixture. Those
+fixtures were corrected; that run is not final-tree acceptance. A subsequent broad run passed 558 cases with five Docker skips (563 total),
+then final review corrected an access-time false refusal in the OpenCode reader
+and added a passing regression. The final sequential static log is
+`/tmp/box-final-static.txt`; its exit/counts are reported in the final response. All broader blueprint tasks retain their complete
+acceptance gates. Docker/runsc, complete native manifests, dedicated accounts,
+VM/filesystem durability, ARM64, rollout and actual remote CI remain unqualified.
+
+## Q06 continuation — exec descriptor inheritance
+
+Extended the host-filesystem probe with two actual subprocess/exec cases.
+With `close_fds=True` and no explicitly passed lock descriptor, closing the
+parent descriptor releases the lock while the child remains alive. With
+`pass_fds` explicitly retaining the locked open-file description, the child
+keeps the lock after the parent closes its descriptor; SIGKILL and reaping the
+child then release it. Both final-release checks passed. This establishes
+the synthetic Python subprocess behavior on this host, not the inheritance
+policy of the production shell/supervisor/Docker paths.
+
+Child acknowledgements now use a bounded read after a five-second readiness
+wait, avoiding an unbounded readline on malformed child output. Common cleanup
+kills/reaps the exact child. A failure-injection regression confirms that an
+acknowledgement failure releases the parent lock and reaps the child.
+
+```bash
+python3 -I specs/test-qualify-host-filesystem.py
+python3 -I specs/qualify-host-filesystem.py --scratch-root /persist
+git diff --check
+```
+
+All five regressions and eight reported observations passed; whitespace checks
+passed. Q06 stays open for production descriptor inheritance and transaction
+recovery, power-loss/VM restart, disk/inode exhaustion, Docker/daemon failures,
+and filesystem support policy. No production state or credentials were used.
+No full static suite, account, Docker, platform or CI qualification is claimed.
+
+## Q06 continuation — bounded host filesystem observations
+
+Added `specs/qualify-host-filesystem.py`. It requires an explicit user-owned
+mode-700 scratch root with nonsymlink ancestry, creates a unique disposable
+directory, and operates only on synthetic lock/revision files. Child lock
+acquisition is acknowledged before contention is tested; waits are bounded,
+and the child is reaped on failure. Cleanup removes only its own temporary
+directory. This is qualification tooling, not a production filesystem API.
+Run it with writers idle and a trusted scratch parent; ancestry checks do not
+protect against concurrent replacement by the host user.
+
+On this host (UID/GID 1000/1000), the following command passed all four
+observations: independent-process lock contention, lock release after actual
+SIGKILL, unchanged stable-lock inode, and old/new complete reader contents
+across file fsync, atomic replacement and directory fsync:
+
+```bash
+python3 -I specs/qualify-host-filesystem.py --scratch-root /persist
+python3 -I specs/test-qualify-host-filesystem.py
+make -C box verify-shell verify-python verify-config verify-generated pins
+git diff --check
+```
+
+All three driver regressions passed: real observations with foreign-sentinel
+preservation/exact cleanup, refusal of symlink ancestry or writable scratch
+roots, and failure/cleanup after injected fsync error. The listed Make checks
+and whitespace checks passed. Bats and ShellCheck are absent in this session;
+no new full static/unit pass is claimed. Previous `/tmp` tool and log paths
+are historical and are unavailable in this container session.
+
+**Q06 remains open.** Successful fsync and process-kill observations do not
+establish power-loss durability, VM restart recovery, descriptor inheritance,
+disk/inode exhaustion, supported filesystem policy, Docker-client/daemon
+failure, or the production transaction recovery state machine. No production
+credentials/state were accessed or mutated. Docker/runsc and dedicated account
+qualification remain unavailable, so dependent cutover and release acceptance
+remain open. The existing dirty implementation was preserved.
+
+## Q01 continuation — transferred source comparison
+
+Added `specs/compare-baselines.py` and its invocation to the VM handoff.
+The read-only checker validates schema/member shapes and recomputes both
+manifest digests before comparing HEAD, complete checkout status and every
+member's kind/hash/size/mode/symlink target. Exit 0 indicates equal source,
+1 reports drift, and 2 refuses invalid input without printing payloads.
+Reads are bounded, regular-file-only, no-follow and checked for observed
+replacement/change. Host facts, checkout roots and capture timestamps may
+differ. Archive integrity, credential auditing and runtime qualification
+remain separate requirements. This check does not make capture atomic.
+
+**U:** All four `baseline.bats` tests pass, including two new transfer tests
+covering source differences, altered modes/targets, added/missing members,
+HEAD/status changes, forged digests, duplicate JSON keys, invalid schemas,
+nonregular/symlink input and size limits. Command:
+`BOX_TEST_PROJECT_ROOT=/persist /tmp/box-bats-core/bin/bats box/tests/bats/baseline.bats`.
+Two idle local captures compared equal; their mode-600 inventories are under
+`/tmp/box-transfer-{source,destination}-2026-10-08.json`. This was a same-host
+comparison, not a VM transfer. Python AST parsing and `git diff --check` pass.
+
+Docker, runsc, qualification VM and dedicated account access remain absent.
+Q01 remains open until transferred-tree/environment acceptance; Q02–Q06 and
+dependent cutover work remain open. No D/N/A/P/CI evidence, production auth
+mutation, commit or publication occurred. Existing dirty work is preserved.
+
+**S/U:** Sequential `PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH
+BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static` exited 0 with
+**536 passed, 0 failed, 5 Docker-dependent skips** (541 cases). Shell syntax,
+Python compilation, configs, generated consistency, pins and ShellCheck passed.
+The specs comparator also passed the separate AST/focused checks above.
+Log: `/tmp/box-static-transfer-2026-10-08.txt`, SHA256
+`9ac8e8b74ac88b05c64fba7b5cd886960fff48c8c7d81246656ad962aa672f78`.
+This evidence precedes the final documentation-only counts/log update;
+it does not constitute exact-final-tree CI or VM acceptance.
+
+Work preserves the pre-existing tracked and untracked implementation. The
+starting tracked patch and source hash/status inventory were saved locally as
+`/tmp/box-implementation-baseline.patch` and
+`/tmp/box-implementation-baseline.json`. These temporary files are local
+working evidence, not release qualification or a credential backup.
+
+## Implemented fixes
+
+- **R01:** Default DNS/startup probe failures refuse the launch. No probe return
+  code can select runc. Explicit `--docker-fallback`, its prohibition, explicit
+  `--runsc`, and shell/dry-run behavior are retained. Informational and logout
+  commands skip DNS health checks while retaining final Docker gates. Login
+  help, transport remediation, operations and security documentation agree.
+- **C03:** Disposable bind-root validation no longer treats a state override
+  resolved beneath the task root as a production root. Registry production
+  defaults and overrides outside that root still participate in collision
+  checks. The valid Codex test override now passes; production collisions and
+  symlink escapes still refuse.
+- **C04:** All operational Make selectors and native fixture paths are frozen
+  from their literal values and exported. Recipes reference shell environment
+  variables instead of interpolating operator strings into shell source.
+  Optional selectors and runtime overrides use the same transport.
+- **T01:** Annotated OpenCode EXIT/signal callback definitions with narrowly
+  scoped SC2317 suppression alongside their existing SC2329 annotations.
+  These functions are called indirectly through registered traps.
+
+These are completed defect fixes within larger tasks. C03 descriptor
+consolidation, C04 no-follow filesystem primitives/hardlink handling, and R01
+native/runtime qualification remain open. No contract-4 cutover is claimed.
+
+## Verification
+
+The 40 tests in `auto-runtime.bats`, `test-state.bats`, and `make-inputs.bats`
+pass with:
+
+```bash
+BOX_TEST_PROJECT_ROOT=/workspace /tmp/box-bats-core/bin/bats \
+  box/tests/bats/auto-runtime.bats box/tests/bats/test-state.bats \
+  box/tests/bats/make-inputs.bats
+make -C box verify-shell verify-python verify-config verify-generated pins
+git diff --check
+```
+
+Syntax, configuration, generated outputs, pins and whitespace passed. Bats
+was obtained in `/tmp/box-bats-core`; ShellCheck 0.10.0 was unpacked under
+`/tmp`. Neither tool was installed into the user's home or bundled project.
+
+The full unit run across 36 files completed with 448 passing and 83 failing
+cases (before the final added launch-tail regression, which passes in the
+40-test targeted run). Logs are in `/tmp/box-unit-results.txt`. The repository
+static target reached ShellCheck and failed on SC2317 findings in existing
+OpenCode trap callbacks. Those annotations were corrected and that file
+passes `shellcheck -x`. Changed shell files also pass `shellcheck -x`; no
+complete `verify-static` pass is claimed. Static log:
+`/tmp/box-static-results.txt`.
+
+Broader tests encountered environment constraints: the real
+home is read-only, and `/workspace` is group-writable and on the production
+project denylist. Guards were preserved. Docker, runsc, shipped Muse/OpenCode
+binaries, account refresh/logout/MCP, crash durability, ARM64 and remote CI
+remain unqualified. The 34-task blueprint is not complete or accepted end to
+end. Next dependencies are registry/adapter qualification, no-follow host
+store primitives, host-only transaction authority, and exact-ID lifecycle
+supervision before auth contract cutover.
+
+## Continuation — native qualification prerequisites
+
+The dirty checkout was inspected before editing. All earlier changes are
+retained. No production auth contract, canonical mount, migration, or native
+store was changed in this slice. Q02–Q06 still block the dependent cutover.
+
+- **Q05 prerequisite:** The Codex host fixture now requires explicit binary
+  and package paths. Before native execution it selects the host architecture's
+  registry digest through `lib/pins.sh`, checks the complete archive SHA256,
+  and checks the supplied executable against the single regular executable
+  `bin/codex` member. The expected native version also comes from the pin API.
+  No PATH-discovered binary or version-string-only provenance is accepted.
+- **Q03/Q04 prerequisite:** Muse and OpenCode host fixtures explicitly refuse
+  architectures other than their currently implemented amd64 qualification.
+  Pin lookup runs in privileged Bash with a minimal environment. Native
+  diagnostics record artifact digest/version and limits of the synthetic
+  checks. OpenCode records the client-created SQLite schema fingerprint before
+  synthetic additions and refuses empty schema evidence. These changes do not
+  supply the missing native manifests or account observations.
+- **C04 transport coverage:** `CODEX_BINARY` and `CODEX_ARCHIVE` use the existing
+  literal environment transport. The combined Make target requires every
+  explicit artifact input. A regression covers hostile artifact path strings.
+- **Docs:** Acceptance records retain the old Codex observation as historical
+  evidence and document the stricter reproducible invocation. No broader task
+  checkbox has been closed.
+
+**U:** All 45 focused tests pass, including four new provenance refusals/order
+checks and the new Make artifact-path regression:
+
+```bash
+BOX_TEST_PROJECT_ROOT=/persist /tmp/box-bats-core/bin/bats \
+  box/tests/bats/native-provenance.bats box/tests/bats/make-inputs.bats \
+  box/tests/bats/auto-runtime.bats box/tests/bats/test-state.bats
+```
+
+Log: `/tmp/box-focused-continuation.txt`. The provenance tests use synthetic
+packages and a fixture pin API; they are unit evidence, not pinned artifact or
+native acceptance. **S:** Python compilation and whitespace checks pass.
+
+**S/U broad checks:** The full static run completed unsuccessfully, recorded at
+`/tmp/box-static-continuation.txt`. Syntax, Python compilation, configuration,
+generated output, pins and ShellCheck passed. Its `/workspace` Bats phase had
+418 passes, 85 failures and 34 skips; many failures explicitly cite the preserved
+writable-ancestor/project guards. This is not a complete static pass, and the
+85 failures have not each been independently classified.
+
+A separate full Bats run used `/persist` as the writable protected project
+parent, log `/tmp/box-unit-continuation-persist.txt`, without changing guards:
+531 passes, one failure, five skips (537 cases). The failed case was
+`update --check with current seeds reports up to date`; its isolated rerun
+passed after the concurrent suites exited. The updater takes a nonblocking
+exclusive lock on the same bundle directory even for `--check`, so contention
+between the two broad runs is the likely cause; the original failed assertion
+did not retain its command diagnostic. Do not describe that broad run as an
+unqualified pass. The five skips remain explicit test gates.
+
+```bash
+BOX_TEST_PROJECT_ROOT=/persist /tmp/box-bats-core/bin/bats \
+  --print-output-on-failure \
+  --filter 'update --check with current seeds reports up to date' \
+  box/tests/bats/update.bats
+```
+
+Future broad runs should use `/persist` and run sequentially to avoid the shared
+bundle-maintenance lock. `git diff --check` and the recorded qualification source
+hash comparison pass on this final slice.
+
+**N continuation:** After the user supplied official Muse/OpenCode site links,
+the pinned artifacts were downloaded to `/tmp` from the Dockerfile's official
+URLs. All three matched their registry SHA256 pins. The installed Codex also
+matched `bin/codex` in the verified complete package. Each updated fixture passed
+with `--scratch-root /persist`; disposable homes were removed. Logs:
+`/tmp/box-native-muse-continuation.txt`,
+`/tmp/box-native-opencode-continuation.txt`,
+`/tmp/box-native-codex-continuation.txt`. Source/artifact/log hashes are in
+[`native-qualification-2026-10-08.json`](native-qualification-2026-10-08.json).
+OpenCode's client-created schema fingerprint before synthetic additions was
+`1595725dab445c6cfabc638fafa2d9bc66a2d1f9c5f038b33996f419702dd971`.
+It is an observation, not the complete approved mutation contract. Native
+synthetic passes do not close dedicated-account or Docker release gates.
+
+**Remaining gates:** On this x86_64 host, UID/GID are 1000/1000. Docker and runsc
+remain unavailable; dedicated account/runtime access has not been supplied.
+Q02 runtime/network/callbacks, Q03 Muse device/MCP/trust,
+Q04 OpenCode native importer/account/service contract, Q05 Codex MCP/alternate
+stores and real refresh, Q06 crash/filesystem durability, ARM64 and actual CI
+remain open. The next dependent production changes require these qualifications;
+the blueprint is incomplete and unaccepted.
+
+## Sequential handoff verification — 2026-10-08
+
+**S/U:** The requested sequential static run exited 0 on the preserved tree:
+
+```bash
+PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH \
+  BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static
+git diff --check
+```
+
+Shell syntax, Python compilation, config parsing, generated consistency, pins,
+and ShellCheck passed. Bats completed 537 cases: **532 passed, 0 failed,
+5 skipped**. All five skips require the missing Docker CLI (dry-run shape,
+OpenCode volume persistence, and three Docker config backup/staging cases).
+These are host limitations and unmet Docker verification gates, not passes.
+The previously contended updater case passed in this sequential run.
+Log: `/tmp/box-static-handoff-2026-10-08.txt`; SHA256:
+`68b648bbac824c88020c5b5e810a50d234fdaba13cf9645fe321cd76724a7d59`.
+
+Prerequisites were rechecked: Linux x86_64, UID/GID 1000/1000; `/persist`
+is owned by that user with mode 700. Docker CLI, runsc, and the local Docker
+socket are absent. The user has not identified an accessible qualified host or
+dedicated test account. A disposable Linux amd64 VM with a local filesystem,
+rootful Engine, runsc, SSH and snapshot/restart control is the proposed next
+qualification environment. Its actual versions and behavior must be observed.
+
+No production implementation or auth cutover was performed in this slice.
+No new **D/N/A/P/CI** evidence was obtained. Q02–Q06 and all dependent
+acceptance gates remain open; no blueprint task was checked off. Existing
+changes and permission guards were preserved; nothing was committed or published.
+
+## Independent Q01 groundwork — source baseline capture (2026-10-08)
+
+Added `specs/capture-baseline.py` to reproduce the source inventory on the dirty
+checkout and qualification host. It emits JSON to stdout with HEAD/status,
+source SHA256/modes, host facts and tool lookup results. It excludes provider/auth
+files and ignored/non-source artifacts, records symlink targets without reading
+them, and refuses observed replacement or file/status changes. Run with writers
+idle; this is not an atomic snapshot. No native client, Docker, home or auth
+store is accessed. The handoff documents scope and transfer comparison.
+
+**U:** Both `baseline.bats` regressions pass: synthetic source drift, missing
+members, credential exclusion and symlink handling; changing checkout status
+refuses before JSON publication. Command:
+
+```bash
+BOX_TEST_PROJECT_ROOT=/persist /tmp/box-bats-core/bin/bats box/tests/bats/baseline.bats
+```
+
+Q01 remains open pending full baseline/qualification acceptance. Q02–Q06 and
+their dependent cutover gates remain open. No new D/N/A/P/CI claim is made.
+
+**S/U:** Sequential `PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH
+BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static` exited 0:
+**534 passed, 0 failed, 5 skipped** (539 cases). All five skips require Docker
+CLI. Syntax, Python compilation, configuration, generated checks, pins and
+ShellCheck pass; the baseline tool also passes a separate Python AST parse.
+`git diff --check` passes. Log: `/tmp/box-static-baseline-2026-10-08.txt`, SHA256
+`1abeca6dac86e485fb138db085f3482c11ea23a035f0a2f7d81edbcef0a10990`.
+Repeated idle source captures matched; output was mode 600. The final source
+inventory is `/tmp/box-source-baseline-2026-10-08.json`. Logs and inventories
+are temporary local evidence, not release acceptance.

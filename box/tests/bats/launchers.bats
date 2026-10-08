@@ -245,7 +245,7 @@ _installed_layout() {
   mkdir -p -- "$inst/lib"
   cp -- "$BUNDLE_DIR/box-m" "$BUNDLE_DIR/box-o" "$BUNDLE_DIR/box-c" "$inst/"
   cp -r "$BUNDLE_DIR/harnesses" "$inst/"
-  cp -- "$BUNDLE_DIR"/lib/*.sh "$inst/lib/"
+  cp -- "$BUNDLE_DIR"/lib/*.sh "$BUNDLE_DIR"/lib/*.py "$inst/lib/"
 }
 
 @test "box-m --dry-run: installed layout tags from the config-file version" {
@@ -483,7 +483,7 @@ _muse_login_stub() {
   cp -- "$BUNDLE_DIR/box-m-login" "$stub/"
   mkdir -p "$stub/harnesses/muse"
   cp "$BUNDLE_DIR/harnesses/muse/native.sh" "$stub/harnesses/muse/"
-  cp -- "$BUNDLE_DIR"/lib/*.sh "$stub/lib/"
+  cp -- "$BUNDLE_DIR"/lib/*.sh "$BUNDLE_DIR"/lib/*.py "$stub/lib/"
 }
 
 @test "box-m-login hints when login succeeds without a device URL" {

@@ -9,10 +9,18 @@ should not require rewriting shared operational guides.
    and fixed adapter fields. Declare a unique volume-naming `state_prefix`
    (distinct from the container `network`) plus every persistent/ephemeral state
    record and exact reset consequence, including the canonical `volume` state at
-   runtime `/persist`. Separate package sources from installed leaf
+   runtime `/persist`. Declare exactly one `auth` state per harness
+   (`class=auth`, `scope=auth-policy`, shared root `.config/box/auth`,
+   runtime `/run/box-auth`, adapter `harnesses/<id>/auth.sh`, schema 1) with
+   the preserved fallback scope, plus every non-auth record with explicit
+   auth-free reset wording. Separate package sources from installed leaf
    names. Declare every config artifact with format, role, lifecycle, runtime
    path, owner, mode, and consumers. Override fields list environment names,
-   including aliases. Do not put executable expressions in records.
+   including aliases. Optional state `leaf` names a project-home child; optional
+   `volume_prefix` declares an exact historical volume family for inventory only.
+   Native launch hashing/naming, discovery and reset/removal must use `state.sh`;
+   add no second formula to adapters or test drivers. Do not put executable
+   expressions in records.
    `probe_url` is the canonical HTTPS endpoint: its host must appear in
    `probe_hosts` and in the harness `30-network` partial (muse exact URL equals
    its settings `endpoint_transport.base_url`).
@@ -27,7 +35,11 @@ should not require rewriting shared operational guides.
    `box_harness_validate`. Install adapters export read-only planning and
    preparation functions. Launch planning must complete before mutation;
    seed once, preserve preferences/empty files, enforce native cache hygiene,
-   and use shared project identity and container primitives.
+   and use shared project identity and container primitives. Auth adapters
+   (`harnesses/<id>/auth.sh` + `box_adapter_validate/export/install/collect/
+   scrub`) move auth material only — never preferences, trust, approvals,
+   sessions, or transcripts — and selection stays in project state; shared
+   code invokes the declared adapter and never branches on harness names.
 4. Add a handwritten public wrapper and one `FROM base AS <id>` stage.
    Declare/consume pins in that stage, preserve the canonical Bash SHELL,
    hash the retained installation inputs, assert exact normalized versions,

@@ -22,7 +22,7 @@ setup() {
       value="$host_uid:$host_gid"
       [[ "${failure:-}" != user ]] || value="9:$host_gid"
       [[ "${failure:-}" != group ]] || value="$host_uid:9"
-      printf '%s|%s\n' "$value" "$box_file_version"
+      printf '%s|%s|3\n' "$value" "$box_file_version"
     else
       for pair in $(box_tool_field opencode label_pins); do
         if ((first)); then first=0; continue; fi
@@ -166,7 +166,7 @@ fixture_docker() {
     version) printf '29.0.0\n'; return ;;
   esac
   if [[ "$4" == *Config.User* ]]; then
-    printf '%s:%s|%s\n' "$host_uid" "$host_gid" "$box_file_version"
+    printf '%s:%s|%s|3\n' "$host_uid" "$host_gid" "$box_file_version"
   else
     for pair in $(box_tool_field "${BOX_TEST_SYNC_ID:?}" label_pins); do
       if ((first)); then first=0; continue; fi

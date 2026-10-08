@@ -227,3 +227,72 @@ newline"
   run box_preflight_project
   [ "$status" -eq 0 ]
 }
+
+@test "hardlink inspection accepts multiple names entirely inside the project" {
+  mkdir -p "$TEST_PROJ/one" "$TEST_PROJ/two"
+  printf 'synthetic' > "$TEST_PROJ/one/original"
+  ln "$TEST_PROJ/one/original" "$TEST_PROJ/two/alias"
+  run box_preflight_project
+  [ "$status" -eq 0 ]
+}
+
+@test "hardlink inspection refuses any external inode alias and preserves bytes" {
+  printf 'foreign-sentinel' > "$PROJ_ROOT/foreign"
+  ln "$PROJ_ROOT/foreign" "$TEST_PROJ/alias"
+  run box_preflight_project
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"external hardlinks"* ]]
+  [ "$(cat "$PROJ_ROOT/foreign")" = foreign-sentinel ]
+}
+
+@test "hardlink inspection handles delimiter and shell shaped filenames as data" {
+  local name=$'line\nbreak $(`touch marker`) *'
+  printf 'synthetic' > "$TEST_PROJ/$name"
+  ln "$TEST_PROJ/$name" "$TEST_PROJ/second alias"
+  run box_preflight_hardlinks
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_PROJ/marker" ]
+}
+
+@test "hardlink inspection refuses unreadable subtrees rather than skipping them" {
+  mkdir "$TEST_PROJ/closed"
+  chmod 000 "$TEST_PROJ/closed"
+  run box_preflight_hardlinks
+  chmod 700 "$TEST_PROJ/closed"
+  [ "$status" -ne 0 ]
+}
+
+@test "hardlink inspection never follows directory symlinks" {
+  mkdir "$TEST_TMP/foreign-directory"
+  chmod 000 "$TEST_TMP/foreign-directory"
+  ln -s "$TEST_TMP/foreign-directory" "$TEST_PROJ/reference"
+  run box_preflight_hardlinks
+  chmod 700 "$TEST_TMP/foreign-directory"
+  [ "$status" -eq 0 ]
+}
+
+@test "hardlink inspection refuses an observed mutation between inventories" {
+  run python3 -I - "$BUNDLE_DIR/lib/project-links.py" "$TEST_PROJ" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("links", sys.argv[1])
+links = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(links)
+original = links.inventory
+calls = 0
+def changed(fd):
+    global calls
+    snapshot = original(fd)
+    calls += 1
+    if calls == 1:
+        pathlib.Path(sys.argv[2], "new member").write_text("synthetic")
+    return snapshot
+links.inventory = changed
+try:
+    links.qualify(sys.argv[2])
+except ValueError as exc:
+    assert "changed" in str(exc)
+else:
+    raise AssertionError("changing inventory accepted")
+PY
+  [ "$status" -eq 0 ]
+}

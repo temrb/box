@@ -88,7 +88,7 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [muse,native_helper]='harnesses/muse/native.sh'
   [muse,verify_label]='MUSE CODE'
   [muse,artifacts]='settings'
-  [muse,states]='home volume'
+  [muse,states]='home volume auth'
   [muse,probe_url]='https://api.meta.ai/v1'
   [opencode,package]='harnesses/opencode'
   [opencode,version_source]='harnesses/opencode/version-opencode.env'
@@ -99,7 +99,7 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [opencode,native_helper]=''
   [opencode,verify_label]='OPENCODE'
   [opencode,artifacts]='config'
-  [opencode,states]='volume config-parent'
+  [opencode,states]='volume config-parent auth legacy-v1'
   [opencode,probe_url]='https://opencode.ai'
   [codex,package]='harnesses/codex'
   [codex,version_source]='harnesses/codex/version-codex.env'
@@ -110,7 +110,7 @@ declare -gA _BOX_TOOL_REGISTRY=(
   [codex,native_helper]=''
   [codex,verify_label]='CODEX'
   [codex,artifacts]='config policy'
-  [codex,states]='home volume'
+  [codex,states]='home volume auth'
   [codex,probe_url]='https://auth.openai.com'
   [codex,directory_parser]='toml'
   [codex,directory_configs]='.codex/config.toml'
@@ -198,20 +198,33 @@ _box_artifact_record codex policy harnesses/codex/policy/requirements.toml toml 
 unset -f _box_artifact_record
 
 # State: scope, kind, relative host root, override, container path, mode,
-#        reset consequence. Volume naming remains project/UID/GID scoped.
-readonly box_state_fields='scope kind root override runtime mode reset'
+#        reset consequence, class, default auth scope, adapter, schema.
+# Volume naming remains project/UID/GID scoped. Auth records carry
+# class=auth, scope=auth-policy, kind=bind, shared protected auth root,
+# runtime=/run/box-auth, mode=700, explicit auth reset semantics.
+# Non-auth records carry class=non-auth with empty default_scope/adapter/
+# schema_version. Reset descriptions distinguish non-auth contents from
+# temporary native auth projections (see specs/plan.md).
+readonly box_state_fields='scope kind root override runtime mode reset class default_scope adapter schema_version leaf volume_prefix volume_adapter native_projection'
 declare -gA _BOX_STATES=()
 _box_state_record() {
   local tool=$1 state=$2 field; shift 2
-  for field in $box_state_fields; do _BOX_STATES[$tool,$state,$field]=$1; shift; done
+  for field in $box_state_fields; do
+    _BOX_STATES[$tool,$state,$field]=${1:-}
+    (($# == 0)) || shift
+  done
   (($# == 0)) || die 'Invalid state record.'
 }
-_box_state_record muse home global bind .config/box-m/muse-config BOX_M_PERSIST_DIR /home/box/.config/muse 700 'global-settings-auth-trust'
-_box_state_record muse volume physical-project volume '' '' /persist 700 'project-data-state'
-_box_state_record opencode volume physical-project volume '' '' /persist 700 'project-auth-data-state'
-_box_state_record opencode config-parent physical-project volume '' '' /persist/config/opencode 700 'client-preferences'
-_box_state_record codex home physical-project bind .config/box-c/projects 'BOX_C_STATE_ROOT BOX_C_STATE_DIR' /home/box/.codex 700 'project-auth-preferences-transcripts'
-_box_state_record codex volume physical-project volume '' '' /persist 700 'project-sqlite-state'
+_box_state_record muse home global bind .config/box-m/muse-config BOX_M_PERSIST_DIR /home/box/.config/muse 700 'global-settings-trust-non-auth' non-auth '' '' ''
+_box_state_record muse volume physical-project volume '' '' /persist 700 'project-data-state-non-auth' non-auth '' '' ''
+_box_state_record muse auth auth-policy bind .config/box/auth BOX_AUTH_ROOT /run/box-auth 700 'auth-canonical-only' auth global harnesses/muse/auth.sh 1
+_box_state_record opencode volume physical-project volume '' '' /persist 700 'project-data-state-non-auth' non-auth '' '' ''
+_box_state_record opencode config-parent physical-project volume '' '' /persist/config/opencode 700 'client-preferences-non-auth' non-auth '' '' ''
+_box_state_record opencode auth auth-policy bind .config/box/auth BOX_AUTH_ROOT /run/box-auth 700 'auth-canonical-only' auth project harnesses/opencode/auth.sh 1 '' '' harnesses/opencode/auth-volume.py /persist/data/opencode/opencode/opencode.db
+_box_state_record codex home physical-project bind .config/box-c/projects 'BOX_C_STATE_ROOT BOX_C_STATE_DIR' /home/box/.codex 700 'project-preferences-transcripts-non-auth' non-auth '' '' '' codex-home ''
+_box_state_record codex volume physical-project volume '' '' /persist 700 'project-sqlite-state-non-auth' non-auth '' '' ''
+_box_state_record codex auth auth-policy bind .config/box/auth BOX_AUTH_ROOT /run/box-auth 700 'auth-canonical-only' auth project harnesses/codex/auth.sh 1
+_box_state_record opencode legacy-v1 physical-project volume '' '' /persist 700 'legacy-v1-no-import-exact-removal' non-auth '' '' '' '' box-o
 unset -f _box_state_record
 
 box_artifact_field() {
@@ -365,14 +378,59 @@ box_validate_registry_artifacts() {
 box_validate_registry_states() {
   local id=$1 bundle=$2
   local -n _seen=$3 _sources=$4
-  local state f kind value override file
+  local state f kind value override file class scope default_scope adapter schema
+  local auth_count=0
   for state in $(box_tool_field "$id" states); do
     [[ "$state" =~ ^[a-z][a-z0-9-]*$ && -z "${_seen[state,$id/$state]+set}" ]] || die "Invalid/duplicate state: $id/$state"
     _seen[state,$id/$state]=1
     for f in $box_state_fields; do box_state_field "$id" "$state" "$f" >/dev/null; done
-    case "$(box_state_field "$id" "$state" scope):$(box_state_field "$id" "$state" kind)" in global:bind|physical-project:bind|physical-project:volume|ephemeral:tmpfs) ;; *) die "Invalid state contract: $id/$state";; esac
+    class=$(box_state_field "$id" "$state" class)
+    scope=$(box_state_field "$id" "$state" scope)
+    default_scope=$(box_state_field "$id" "$state" default_scope)
+    adapter=$(box_state_field "$id" "$state" adapter)
+    schema=$(box_state_field "$id" "$state" schema_version)
+    if [[ "$class" == auth ]]; then
+      auth_count=$((auth_count + 1))
+      [[ "$state" == auth ]] || die "Invalid auth state name: $id/$state"
+      [[ "$scope" == auth-policy ]] || die "Invalid auth scope: $id/$state"
+      [[ "$(box_state_field "$id" "$state" kind)" == bind ]] || die "Invalid auth kind: $id/$state"
+      [[ "$(box_state_field "$id" "$state" root)" == .config/box/auth ]] || die "Invalid auth root: $id/$state"
+      [[ "$(box_state_field "$id" "$state" override)" == BOX_AUTH_ROOT ]] || die "Invalid auth override: $id/$state"
+      [[ "$(box_state_field "$id" "$state" runtime)" == /run/box-auth ]] || die "Invalid auth runtime: $id/$state"
+      case "$default_scope" in global|project) ;; *) die "Invalid auth default_scope: $id/$state";; esac
+      [[ "$adapter" == "harnesses/$id/auth.sh" ]] || die "Invalid auth adapter: $id/$state"
+      box_assert_relative_source "$bundle" "$adapter"
+      [[ "$schema" == 1 ]] || die "Invalid auth schema_version: $id/$state"
+    else
+      [[ "$class" == non-auth ]] || die "Invalid state class: $id/$state"
+      case "$scope:$(box_state_field "$id" "$state" kind)" in global:bind|physical-project:bind|physical-project:volume|ephemeral:tmpfs) ;; *) die "Invalid state contract: $id/$state";; esac
+      [[ -z "$default_scope" && -z "$adapter" && -z "$schema" ]] || die "Orphan auth field on non-auth state: $id/$state"
+    fi
     [[ "$(box_state_field "$id" "$state" mode)" == 700 && -n "$(box_state_field "$id" "$state" reset)" ]] || die "Invalid state permissions/lifecycle: $id/$state"
+    local volume_adapter native_projection
+    volume_adapter=$(box_state_field "$id" "$state" volume_adapter)
+    native_projection=$(box_state_field "$id" "$state" native_projection)
+    if [[ -n "$volume_adapter" ]]; then
+      [[ "$class" == auth && "$volume_adapter" == "harnesses/$id/auth-volume.py" ]] || die 'Invalid contained auth adapter.'
+      box_assert_relative_source "$bundle" "$volume_adapter"
+      [[ "$native_projection" == /persist/* && "$native_projection" =~ ^/[A-Za-z0-9_./-]+$ && "/$native_projection/" != *'/../'* && "/$native_projection/" != *'/./'* ]] || die 'Invalid contained native projection.'
+    else
+      [[ -z "$native_projection" ]] || die 'Orphan contained native projection.'
+    fi
     kind=$(box_state_field "$id" "$state" kind)
+    local leaf volume_prefix
+    leaf=$(box_state_field "$id" "$state" leaf)
+    volume_prefix=$(box_state_field "$id" "$state" volume_prefix)
+    [[ -z "$leaf" || ( "$kind:$scope" == bind:physical-project && "$leaf" =~ ^[a-z][a-z0-9-]*$ ) ]] || die 'Invalid native home leaf.'
+    [[ -z "$volume_prefix" || ( "$kind:$class" == volume:non-auth && "$volume_prefix" =~ ^[a-z][a-z0-9-]*$ ) ]] || die 'Invalid historical volume prefix.'
+    if [[ -n "$volume_prefix" ]]; then
+      [[ "$state" != volume && -z "${_seen[historical-volume,$volume_prefix]+set}" ]] || die 'Duplicate or canonical historical volume prefix.'
+      local other_id
+      for other_id in $box_tool_ids; do
+        [[ "$volume_prefix" != "$(box_tool_field "$other_id" state_prefix)" ]] || die 'Historical prefix collides with canonical volume family.'
+      done
+      _seen[historical-volume,$volume_prefix]=1
+    fi
     value=$(box_state_field "$id" "$state" root)
     if [[ "$kind" == bind ]]; then
       [[ "$value" =~ ^[A-Za-z0-9_./-]+$ && "$value" != /* && "/$value/" != *'/../'* && "/$value/" != *'/./'* ]] || die 'Escaping state root.'
@@ -387,6 +445,7 @@ box_validate_registry_states() {
   done
   [[ -n "${_seen[state,$id/volume]+set}" ]] || die "Missing canonical volume: $id"
   [[ "$(box_state_field "$id" volume kind)" == volume && "$(box_state_field "$id" volume runtime)" == /persist ]] || die "Invalid canonical volume: $id"
+  [[ "$auth_count" == 1 ]] || die "Missing auth state: $id (want exactly one auth record)"
   while IFS= read -r file; do [[ -n "${_sources[${file#"$bundle/"}]+set}" ]] || die "Artifact lacks consumer: $file"; done < <(find "$bundle/harnesses/$id/config" "$bundle/harnesses/$id/policy" -type f 2>/dev/null)
 }
 

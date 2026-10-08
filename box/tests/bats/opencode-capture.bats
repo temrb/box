@@ -65,6 +65,7 @@ STUB
 #!/bin/bash
 printf '%s\n' "${BOX_TEST_STATE_NS:-<unset>}" >>"$HOME/seen-ns.log"
 printf '%s\n' "${BOX_TEST_TASK_ROOT:-<unset>}" >>"$HOME/seen-root.log"
+printf '%s\n' "${BOX_TEST_PROJECT_HASH:-<unset>}" >>"$HOME/seen-hash.log"
 cat "$HOME/debug.json"
 STUB
   chmod +x "$HOME/.local/bin/box-o"
@@ -74,15 +75,42 @@ STUB
   taskroot="$PROJ_ROOT/taskroot"
   mkdir -p "$taskroot"
   export BOX_TEST_TASK_ROOT="$taskroot" BOX_TEST_STATE_NS=t-abcdef123456
+  export BOX_TEST_PROJECT_HASH=$(box_state_project_hash "$project")
   rm -f "$HOME/seen-ns.log" "$HOME/seen-root.log"
   run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
   [ "$status" -eq 0 ]
   seen_ns=$(cat "$HOME/seen-ns.log")
   [[ "$seen_ns" =~ ^t-abcdef123456-cap-[0-9a-f]{8}$ ]]
   [ "$(cat "$HOME/seen-root.log")" = "$taskroot" ]
+  [ "$(cat "$HOME/seen-hash.log")" = '<unset>' ]
   # The parent-NS volume is untouched: only the capture sub-namespace ran.
   [[ "$seen_ns" != t-abcdef123456 ]]
   unset BOX_TEST_TASK_ROOT BOX_TEST_STATE_NS
+}
+
+@test "capture from a normal shell mints disposable state, never production" {
+  prepare_capture
+  cat >"$HOME/.local/bin/box-o" <<'STUB'
+#!/bin/bash
+printf '%s\n' "${BOX_TEST_STATE_NS:-<unset>}" >>"$HOME/seen-ns.log"
+printf '%s\n' "${BOX_TEST_TASK_ROOT:-<unset>}" >>"$HOME/seen-root.log"
+printf '%s\n' "${BOX_TEST_REAL_HOME:-<unset>}" >>"$HOME/seen-realhome.log"
+cat "$HOME/debug.json"
+STUB
+  chmod +x "$HOME/.local/bin/box-o"
+  unset BOX_TEST_TASK_ROOT BOX_TEST_STATE_NS BOX_TEST_REAL_HOME
+  rm -f "$HOME/seen-ns.log" "$HOME/seen-root.log" "$HOME/seen-realhome.log"
+  run bash "$copy/harnesses/opencode/capture-validation.sh" --output-dir "$TEST_TMP/evidence"
+  [ "$status" -eq 0 ]
+  seen_ns=$(cat "$HOME/seen-ns.log")
+  # Fresh disposable namespace, not a production identity.
+  [[ "$seen_ns" =~ ^t-[0-9a-f]{12}$ ]]
+  seen_root=$(cat "$HOME/seen-root.log")
+  [[ "$seen_root" == "$HOME"/.box-capture.* ]]
+  [ -d "$seen_root" ] || [ ! -e "$seen_root" ]  # cleaned up by the EXIT trap
+  [ "$(cat "$HOME/seen-realhome.log")" = "$HOME" ]
+  # No production auth or volume was created or consumed.
+  [ ! -e "$HOME/.config/box/auth" ]
 }
 
 @test "capture fails closed on a malformed test namespace" {

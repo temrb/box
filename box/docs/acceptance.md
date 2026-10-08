@@ -1,5 +1,27 @@
 # Architecture audit acceptance
 
+## Q01 transfer comparison groundwork (2026-10-08)
+
+**U:** The read-only `specs/compare-baselines.py` checker validates inventory
+digests and compares HEAD/status and complete source members before VM
+qualification. All four `baseline.bats` tests pass with `/persist` as the
+protected test parent, including transfer drift and malformed/forged/nonregular
+input refusals. Two idle same-host captures compare equal. Python AST parsing
+and whitespace checks pass. No VM transfer or runtime qualification is claimed.
+The [handoff](../../specs/handoff-next-step.md) records the command and limits.
+Q01–Q06, dedicated accounts, durability, ARM64 and actual CI remain open;
+Docker/runsc/qualified VM access is still unavailable. Existing work is preserved.
+
+**S/U:** Sequential static verification exited 0: **536 passed, 0 failed,
+5 Docker-dependent skips** (541 cases), with syntax, compilation, configs,
+generated checks, pins and ShellCheck passing. It used temporary tools via
+`PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH` and
+`BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static`.
+Log `/tmp/box-static-transfer-2026-10-08.txt`, SHA256
+`9ac8e8b74ac88b05c64fba7b5cd886960fff48c8c7d81246656ad962aa672f78`.
+The counts/log documentation update followed this run. No new D/N/A/P/CI
+evidence or completed qualification checkbox is claimed.
+
 [Harness index](harnesses.md) · [Operations](operations.md) ·
 [Upgrades](upgrades.md) · [Security/resource audit](security-resource-audit.md)
 
@@ -62,6 +84,7 @@ assertions, with fixture container/volume identifiers removed.
 | Codex native policy | Both runtimes pass loaded requirements, effective configuration, ephemeral thread on-request/user/dangerFullAccess, reviewer rejection/fallback, and conflicting session/CLI credential-store/update-check/SQLite settings. No model turn. |
 | OpenCode native policy | **PASS, account-independent**: production installed v2 launcher under both explicit runtimes; 25 matched tool cases each, explicit deny-over-auto, durable saved approvals/restart and deny-over-saved-approval. [Fresh evidence](evidence/opencode-v2-cutover.md) is historical for the prior tree. Evidence shows deny-over-auto and deny-over-saved separately, not the triple deny-over-auto-over-saved combination. Real login/model/resume remains UNMET. |
 | Unauthenticated restart/state | Codex host home and named-volume markers survive restart and are absent from a second physical project. OpenCode shipped client preferences, state and saved approvals now pass production-launcher restart/two-project isolation; legacy fixtures remain untouched. Filesystem persistence only, not authenticated resume. |
+| Auth-scope lifecycle (synthetic) | Registry auth records, policy precedence, global/project identity separation, migration/copy/init/recover journals, tombstone logout, lease serialization, scope-transition acknowledgment, and exact-identity cleanup are covered by the `auth-*`/`state` Bats suites with synthetic fixtures and fault injection. Synthetic credentials prove storage mechanics only; real login/refresh/logout/model/resume need dedicated test accounts (never production auth). |
 | Setup reruns | Preserve selected default, differing installed pins, live preference and synthetic auth bytes; remove obsolete installed adapter code (obsolete-removal evidence is Docker-gated). Synthetic auth is not a valid login. Except OpenCode host `opencode.json`, refreshed with one `.bak`; volume state plus Muse/Codex live settings/auth are preserved. |
 | Full generated verification, runsc | **UNMET**: all three stop at external DNS/HTTPS transport, before account readiness. Local policy/containment tests are recorded separately. |
 | Full generated verification, runc | **UNMET**: egress reaches readiness, then all three fail missing native authentication. No credentials were imported. |
@@ -144,3 +167,354 @@ lived under `/persist/box-tests` because host HOME is read-only and cache is
 mounted noexec. All three image build targets and both native acceptance targets
 were attempted and remain blocked as described above. No native/runtime or
 account acceptance is inferred from static success.
+
+## Auth lifecycle follow-up (2026-10-07)
+
+The current working tree tightens Codex file credentials to a bounded subset
+of the pinned [AuthDotJson](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/login/src/auth/storage.rs)
+API-key/ChatGPT OAuth format. Native payload validation also applies to copied
+and recovered envelopes. Lease publication uses atomic replacement with file
+and directory flushes, and fresh initialization and Codex home reset acquire
+transaction locks. Removal inventories every acknowledged project auth object
+and optionally global auth across recorded historical roots, including protected
+rollback copies and completed journals. Unknown artifacts and unrecovered
+projections refuse removal; old roots predating discovery require explicit input.
+
+Muse non-empty credential membership remains unqualified: absent/empty stores
+are supported, and non-empty exports/imports fail without retiring the source
+or replacing the prior canonical revision. Production adapter qualification
+remains an unmet rollout gate. This stricter behavior can leave a native login
+projection authoritative with an active recovery lease; it must not be described
+as accepted authenticated Muse operation.
+
+`tests/native/auth-lifecycle.py` adds synthetic seed/restart/second-project/logout
+checks for all three harnesses, both scopes and both explicit runtimes. Both
+native drivers invoke it. These checks have not run here: Docker CLI/Engine is
+absent, and `make verify-native` stops when creating its fixture in read-only
+host HOME. Synthetic Muse coverage proves empty-store lifecycle only. Native
+concurrency/interruption, transitions/conflicts, real refresh/rotation, model
+turn/resume, ARM64 and actual remote CI remain unaccepted. Complete uninstall
+still requires separately inventoried non-auth stores, legacy volumes/native
+homes, install backups and explicit external provider files; canonical auth
+inventory alone does not establish complete removal of those stores.
+
+Final local validation for this follow-up: 55 targeted auth/state Bats cases
+passed. `make -C box verify-static` passed with 486 Bats cases (481 passed,
+5 skipped because the Docker CLI is absent). Temporary Bats and ShellCheck
+0.11.0 were used, with `BOX_TEST_PROJECT_ROOT=/persist/box-tests`. The final
+lease durability changes also passed targeted coverage and ShellCheck;
+shell/Python/config/generated/pin checks and `git diff --check` passed.
+Generated verification files were not edited or regenerated in this follow-up;
+pre-existing generated diffs remain preserved. No image builds or runtime/account
+acceptance are inferred from these checks.
+
+### Handoff continuation: removal checkpoints and native storage (2026-10-07)
+
+This continuation preserves the pre-existing uncommitted tree. Canonical auth
+removal inventories without creating/repairing objects, acquires permanent
+identity locks in deterministic order, requires Docker bind-liveness checks,
+publishes durable per-member removal checkpoints before deletion, and resumes
+after interrupted publication/member/directory deletion. Pending removal blocks
+launch/init; recovery refuses changed or unknown members. The lock inode remains
+outside the removed object. Full project reset uses this checkpoint protocol for
+its auth portion only; native-home/volume deletion is not a complete transaction.
+
+OpenCode validation and export now inspect private database/WAL/SHM copies,
+reject redirected sidecars, unknown token-bearing tables and unsupported
+key/OAuth payload fields, and preserve source bytes on rejection. Sidecars retain
+one selection per integration, matching the pinned
+[credential service](https://github.com/anomalyco/opencode/blob/b084acc55ea2cdb50e9c2ec49a8d9ab3608d43ad/packages/core/src/credential.ts).
+Native value validation follows a bounded subset of the pinned
+[credential schema](https://github.com/anomalyco/opencode/blob/b084acc55ea2cdb50e9c2ec49a8d9ab3608d43ad/packages/schema/src/credential.ts).
+Selection publication uses private temporary files and file/directory flushes;
+legacy single-selection sidecars resolve only their original credential ID.
+These are synthetic fixture/storage checks, without pinned OpenCode native
+database/account qualification.
+
+On Linux x86_64, the available `/usr/local/bin/codex` reports `codex-cli 0.160.0`.
+The historical command
+`python3 -I box/tests/native/codex-auth-fixture.py --scratch-root /persist/box-tests`
+passed native synthetic API-key file login/serialization, synthetic ChatGPT
+OAuth loading, adapter import/export, native logout/tombstones, refresh-shaped
+local writes, truncated-write source/envelope preservation, and unchanged
+history/config markers. All homes and credentials were namespace-local and
+disposable; network configuration pointed at a closed loopback port. No real
+login, remote rotation, model turn or session resume ran. Binary version reporting
+does not establish the shipped image's artifact provenance or runtime acceptance.
+OAuth refresh-shaped writes are adapter evidence, not native refresh evidence.
+The remote-rotation-before-local-durability limit remains an account gate.
+
+That historical command is no longer accepted by the qualification driver.
+Codex now requires explicit `--binary` and `--archive` inputs. It verifies the
+host architecture's registry SHA256 and compares the executable with the
+regular `bin/codex` archive member before executing even `--version`. Version
+expectations come from `lib/pins.sh`. This establishes a provenance prerequisite;
+no new pinned native or account qualification is claimed. Provider/MCP manifests,
+MCP refresh/locking/callbacks and alternate stores remain Q05 blockers.
+
+For all three host fixtures, provide `MUSE_BINARY`, `OPENCODE_BINARY`,
+`OPENCODE_ARCHIVE`, `CODEX_BINARY`, and `CODEX_ARCHIVE` to
+`make -C box verify-native-auth-host`, with an explicit writable
+`BOX_TEST_PROJECT_ROOT`. A standalone Codex attempt uses:
+
+```bash
+python3 -I box/tests/native/codex-auth-fixture.py \
+  --binary /path/to/package/bin/codex \
+  --archive /path/to/codex-package-x86_64-unknown-linux-musl.tar.gz \
+  --scratch-root /path/to/disposable-scratch
+```
+
+Use the aarch64 package on ARM64. Artifact verification alone does not qualify
+ARM64 execution. The combined Muse/OpenCode fixtures currently require amd64.
+
+On 2026-10-08, the updated host fixtures passed on x86_64 with downloaded
+pin-matching Muse 1.4.0-R4161.1, OpenCode 2.0.6 and Codex 0.160.0 artifacts.
+The installed Codex executable also matched its verified package member.
+The Muse test establishes native file API-key replacement/logout and synthetic
+adapter preservation. The OpenCode test establishes client-created database
+schema, local native credential activation/removal, synthetic account/MCP row
+projection, selection restoration and unrelated logical table preservation.
+Codex establishes synthetic provider serialization/logout and adapter refusal
+behavior. All fixture homes were disposable and removed; these are **N**
+observations for those specific boundaries, without **D**, **A**, or ARM64
+qualification. Real OAuth/account/importer/MCP refresh and crash gates stay open.
+Source/artifact/log hashes and remaining gates are recorded in
+[`native-qualification-2026-10-08.json`](../../specs/native-qualification-2026-10-08.json).
+
+Targeted command, with pre-existing temporary Bats/ShellCheck on PATH and
+`BOX_TEST_PROJECT_ROOT=/persist/box-tests`:
+
+```bash
+bats box/tests/bats/auth-lifecycle.bats box/tests/bats/auth-migration.bats \
+  box/tests/bats/auth-adapters.bats box/tests/bats/auth-policy.bats box/tests/bats/state.bats
+```
+
+All 65 targeted cases passed. They include unchanged foreign bytes on inventory
+and recovery refusal, permanent lock continuity across removal/recreation,
+Docker liveness refusal, publication/deletion fault recovery, and discovery of
+checkpoints after directory deletion. Fault injection models operation boundaries;
+it does not certify power-loss/SIGKILL recovery or all native lifecycle stages.
+`make -C box pins` and `git diff --check` passed.
+
+An interim full static run failed the existing login process-group TERM cleanup
+assertion, and focused repetition reproduced the failure. The login wrapper now
+installs handlers before child startup and keeps its output reader draining
+through group-signal cleanup, preventing a lost handler window and SIGPIPE while
+the delegated launcher finishes collection. Both wrapper-only and process-group
+TERM assertions passed five consecutive focused runs after this fix. This
+qualifies the synthetic signal regression; actual Docker/native signal stages
+remain separate gates.
+
+Both `make -C box verify-native` and `make -C box verify-native-opencode` were
+attempted and exited 2: `mktemp` cannot create `/home/box/.box-native.XXXXXX` on
+the read-only host HOME. Docker CLI/Engine is also absent; Muse and OpenCode
+pinned executables/fixtures are unavailable. Installed lifecycle checks across
+all harnesses/scopes and both runtimes therefore remain blocked. Non-empty Muse
+auth stays fail closed; exact backend/MCP membership and the trust filename
+discrepancy remain unqualified. OpenCode account/control-account stores remain
+explicitly unsupported when non-empty. Dedicated account acceptance, ARM64
+execution and actual remote CI remain separate unmet prerequisites.
+
+**The plan is not fully complete.** Independent implementation still needs full
+resolver-backed inventory/removal of non-auth native homes/volumes, historical
+native roots, legacy state, bindings/discovery metadata, install/template backups
+and separately selected provider-file credentials, plus recovery of the entire
+reset/removal transaction. The installed native drivers also still need the full
+transition/conflict/setup/reset/uninstall/concurrency/interruption matrix from
+the handoff. These unfinished implementation requirements are not passes and
+are not relabeled as external prerequisite failures.
+
+Final verification after the code changes: `make -C box verify-static` exited 0
+with 496 Bats cases (491 passed, 5 Docker-dependent skips), plus shell syntax,
+Python compilation, configuration, generated consistency, pins and ShellCheck.
+The command used the pre-existing `/tmp/box-fix-bats/bin` and
+`/tmp/shellcheck-v0.11.0` on PATH, `BOX_TEST_PROJECT_ROOT=/persist/box-tests`, and
+`PYTHONPYCACHEPREFIX` inside the run-owned `/tmp/box-handoff.g4Pwqo` scratch
+directory. The earlier signal failure and its remediation are recorded above.
+Temporary scratch logs/cache were removed after recording results; the pre-existing
+test tools and repository Python caches were retained. Disposable Bats/native
+fixtures cleaned their own exact directories. No containers or volumes were
+created, and no identified run-owned projections/checkpoints or scratch residue
+remain. Generated files were not edited/regenerated, no image artifacts or live
+credentials were added, and the user's prior changes remain uncommitted.
+
+### Resumed continuation: file publication and reset lock validation (2026-10-07)
+
+This run preserves the existing uncommitted working tree. Muse/Codex exports
+and imports now stage with `mktemp`, flush the staged file, replace the exact
+destination and flush its directory. File publication rejects redirected
+parents, symlinks, hardlinks and foreign destination ownership before staging;
+collection validates existing native file paths before reading payloads.
+Tombstone install and scrub validate their exact targets. Predictable
+`auth.json.tmp.<pid>` links are no longer staging destinations. Reset validates
+all existing auth/volume/home projection lock inodes (type, owner, link count
+and mode) before creating auth locks or opening a native lock for append.
+This is narrower than full inventory authorization or full reset crash recovery.
+
+The native Codex synthetic storage fixture passed again on Linux x86_64 with
+`codex-cli 0.160.0`, using only a disposable home under `/persist/box-tests`.
+It now also rejects adapter payload modes `agent_identity`, `pat`, `bedrock`,
+`keyring` and `auto` while checking unchanged native source and canonical bytes.
+Those are adapter refusal checks, not native execution of unsupported backends.
+The previous distinction between native API-key/logout storage, synthetic OAuth
+loading and adapter refresh-shaped writes still applies. No account was contacted.
+
+Prerequisites were rechecked using executable lookup: Docker CLI, runsc, Muse
+and OpenCode executables remain absent. Runtime acceptance was not attempted
+without Docker. The pinned Muse backend/MCP/trust inventory and pinned OpenCode
+2.0.6 database/account/native service lifecycle remain unqualified. Non-empty
+Muse stays fail closed. Codex shipped-image provenance, native refresh/write
+interruption and additional credential stores remain unaccepted. Account,
+ARM64 and actual remote CI gates remain unmet.
+
+**The plan remains incomplete.** Full resolver-backed inventory and recoverable
+removal/reset of non-auth homes/volumes, historical native roots, legacy stores,
+bindings/indexes, installation/template backups and separately selected provider
+files remain unfinished implementation. The full installed lifecycle matrix
+also remains unfinished implementation, in addition to unavailable runtime
+prerequisites. No new claim of complete removal or adapter qualification is made.
+
+Final-code verification: 67 targeted auth/state Bats cases passed. The first
+new reset refusal run exposed a cross-filesystem hardlink fixture; moving its
+synthetic foreign file onto the project fixture filesystem fixed the test.
+`make -C box verify-static` exited 0 on the final code with 498 cases
+(493 passed, 5 Docker-dependent skips), including syntax, Python compilation,
+configuration, generated consistency, pins and ShellCheck. The command used
+pre-existing `/tmp/box-fix-bats/bin` and `/tmp/shellcheck-v0.11.0` on PATH,
+`BOX_TEST_PROJECT_ROOT=/persist/box-tests` and a run-local
+`PYTHONPYCACHEPREFIX=/tmp/box-resume-checks.temporary/pycache`.
+`make -C box pins`, `make -C box verify-generated` and `git diff --check` passed.
+Generated scripts were neither edited nor regenerated during this run.
+
+The run-created `/tmp/box-resume-checks.temporary` logs/cache were removed.
+Bats fixtures and Codex TemporaryDirectory homes cleaned their exact directories.
+No containers, volumes or images were created; no run-owned projections,
+checkpoints, synthetic credentials or identified scratch residue remain.
+Pre-existing test tools, repository caches and uncommitted changes were retained.
+No production credentials were inspected or imported, and nothing was committed.
+
+### Refactor completion audit and operational fixes (2026-10-07)
+
+This continuation preserves the pre-existing uncommitted refactor. The current
+tree already contains resolver-backed historical native discovery, recoverable
+reset/full removal, exact installation/template/provider inventories and the
+installed lifecycle driver. Earlier statements above that those implementations
+are wholly absent describe older trees; they do not describe the current code.
+Their presence does not establish native acceptance or complete adapter support.
+
+Full-removal previews now include the current native coordinates even before
+discovery has been recorded, plus exact installed templates, backups and binding
+metadata, without creating the index. Lifecycle Make flags accept only omitted,
+`0` or `1`; `EXECUTE=0` previews. Migration, recovery, removal and reset use the
+isolated local Docker transport rather than ambient contexts/remote endpoints.
+Scope acknowledgments publish through private temporary files with file and
+directory flushes and reject shared binding inodes. Explicit `auth-copy` accepts
+`PROJECT` to acknowledge one matching physical project after a successful copy.
+
+OpenCode's internal native-envelope validation now supplies the required
+revision; valid synthetic credential databases previously failed that check.
+Its managed entrypoint refuses legacy importer files even when a migration
+marker exists. Capture clears an inherited project-qualified fixture hash before
+creating its independent scratch workspace. Regression tests cover these paths.
+
+The installed synthetic lifecycle driver additionally specifies copy conflicts,
+default reset, namespace cleanup refusal, capture independence and interrupted
+OpenCode SQLite recovery. Operational recovery selects the runtime under test.
+These additions have not executed here and are not PASS evidence.
+
+The pinned Codex 0.160.0 disposable native storage fixture passed again: native
+API-key serialization/logout, synthetic OAuth loading, adapter round trips,
+refresh-shaped local writes, malformed/unsupported-state preservation and
+unrelated history/config markers. It imported no production credentials and
+performed no real account login, remote token refresh or model turn.
+
+All three Make image builds and both native acceptance targets were attempted
+and exited 2 because Docker CLI/Engine is unavailable; the local Engine socket,
+runsc and Muse/OpenCode executables are absent. Pinned Muse non-empty backend,
+MCP membership/trust naming, OpenCode account/control-account schemas and native
+service/storage behavior still need qualification. Unsupported material remains
+fail closed. Both-runtime installed acceptance, dedicated account operation,
+ARM64 and remote CI remain open. Consequently the plan's end-to-end definition
+of done is **not met**; static/synthetic checks cannot close these gates.
+
+Final local `make -C box verify-static` exited 0 with 530 Bats cases:
+525 passed and 5 Docker-dependent skips. Shell syntax, Python compilation,
+configuration parsing, ShellCheck, generated consistency and pins passed;
+`make -C box pins`, `make -C box verify-generated` and `git diff --check`
+also passed. Final supervisor/entrypoint source-contract changes additionally
+passed targeted syntax and ShellCheck validation. Temporary Bats 1.12.0 and
+ShellCheck 0.11.0 were used from `/tmp/box-refactor-tools`, with disposable
+projects under `/persist/box-tests` and Python cache outside the checkout.
+The supervisor now enforces the shared `BOX_TOOL` sourcing contract; its image
+entrypoint supplies that identity explicitly. Existing uncommitted work remains
+uncommitted, generated scripts still match their prescribed generator, and no
+production credentials or image artifacts were imported or exported.
+
+## Sequential handoff verification (2026-10-08)
+
+**S/U:** On the preserved working tree, the following sequential run exited 0:
+
+```bash
+PATH=/tmp/shellcheck-v0.10.0:/tmp/box-bats-core/bin:$PATH \
+  BOX_TEST_PROJECT_ROOT=/persist make -C box verify-static
+git diff --check
+```
+
+Syntax, Python compilation, configuration, generated output, pins and ShellCheck
+passed. Bats reported **537 cases: 532 passed, 0 failed, 5 skipped**.
+The skips require Docker CLI for dry-run shape, OpenCode volume persistence,
+and three Docker config backup/staging checks; they remain unmet Docker gates.
+The prior updater-lock contention case passed with suites run sequentially.
+Log: `/tmp/box-static-handoff-2026-10-08.txt`, SHA256
+`68b648bbac824c88020c5b5e810a50d234fdaba13cf9645fe321cd76724a7d59`.
+
+Docker CLI, runsc and the local Engine socket remain absent on this x86_64
+UID/GID 1000/1000 host. `/persist` is owned mode 700; project guards were
+preserved. A qualified host and dedicated account are still needed for
+Q02–Q06. No new **D/N/A/P/CI** observations or production cutover occurred.
+Runtime, account, crash, ARM64 and exact-tree CI gates remain open. The full
+implementation remains incomplete and unaccepted.
+
+## Independent source inventory groundwork (2026-10-08)
+
+**U:** Two new `baseline.bats` regressions pass for the read-only
+`specs/capture-baseline.py` tool: source drift/missing members, credential
+exclusion, symlink non-following and refusal of observed checkout-status changes
+before JSON output. Run:
+`BOX_TEST_PROJECT_ROOT=/persist /tmp/box-bats-core/bin/bats box/tests/bats/baseline.bats`.
+The tool records source hashes, HEAD/status, host identity and tool availability;
+it does not qualify artifacts, runtimes, accounts or durability. Capture requires
+idle writers and is not an atomic snapshot. Q01–Q06 remain open, as do runtime,
+account, crash, ARM64 and exact-tree CI acceptance. Existing changes are retained.
+
+**S/U:** The sequential static run exited 0 with **534 passed, 0 failed,
+5 Docker-dependent skips** (539 cases), using the same temporary Bats/ShellCheck
+PATH and `/persist` project parent shown above. Syntax, compilation, configs,
+generated output, pins and ShellCheck passed. Baseline Python syntax and
+`git diff --check` also pass. Log `/tmp/box-static-baseline-2026-10-08.txt`,
+SHA256 `1abeca6dac86e485fb138db085f3482c11ea23a035f0a2f7d81edbcef0a10990`.
+Repeated idle captures matched and emitted mode-600 local inventory files.
+No new D/N/A/P/CI evidence closes the remaining qualification gates.
+
+
+## Independent groundwork continuation — 2026-10-08
+
+Policy resolution now reports scope and source from one validated result;
+shadowed selectors and unsafe absent-default-config ancestors refuse. Project
+preflight rejects external hardlinks, unreadable/changing inventories and nested
+mounts. Reset/discovery helpers use bounded descriptor-relative host operations,
+fsynced publication and exact file removal with change-time evidence. The new
+host lock primitive has local subprocess contention, SIGKILL-release and exec
+inheritance observations; production lifecycle durability remains unqualified.
+
+Canonical envelope validation is now pure for all three adapters. OpenCode
+verification needs no database initialization or SQLite access. Explicit image
+names retain native-version and artifact label requirements. A manual protected
+self-hosted qualification workflow is present but has not been executed.
+
+Fresh pinned amd64 host fixtures passed for Muse, OpenCode and Codex with
+synthetic credentials and disposable state. This is **N** storage evidence;
+it does not establish dedicated-account login/rotation, complete MCP membership,
+Docker/runsc containment, ARM64, power-loss recovery, rollout or actual **CI**
+execution. Current source checks/results and remaining gates are recorded in
+[the implementation progress log](../../specs/implementation-progress.md#policy-host-filesystem-and-adapter-continuation--2026-10-08).
