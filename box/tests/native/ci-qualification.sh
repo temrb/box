@@ -108,6 +108,7 @@ if run_gate install bash -p "$bundle_dir/setup.sh" --skip-build; then
       done
     )
     run_gate image-provenance record_images || true
+    run_gate network python3 -I "$bundle_dir/tests/native/network-observations.py" || true
     run_gate live make -C "$bundle_dir" test-live || true
     run_gate opencode make -C "$bundle_dir" verify-native-opencode || true
     run_gate native make -C "$bundle_dir" verify-native || true

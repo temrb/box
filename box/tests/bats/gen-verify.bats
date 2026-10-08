@@ -156,3 +156,23 @@ load helpers
     [ "$status" -ne 0 ] || { echo "generated verify-$id.sh leaks a token"; return 1; }
   done
 }
+
+@test "containment-only generation resolves headers without native readiness or network gates" {
+  for id in $box_tool_ids; do
+    run bash -p "$BUNDLE_DIR/gen-verify.sh" --containment "$id"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *'@@'* ]]
+    [[ "$output" == *'=== 1.'*'=== 2.'*'=== 5.'* ]]
+    [[ "$output" != *'=== 3.'* && "$output" != *'=== 4.'* ]]
+    printf '%s\n' "$output" > "$TEST_TMP/containment.sh"
+    bash -n "$TEST_TMP/containment.sh"
+    run bash -c 'id() { echo 0; }; source "$1"' _ "$TEST_TMP/containment.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'FAIL: running as root'* ]]
+    [[ "$output" != *'command not found'* ]]
+  done
+  run bash -p "$BUNDLE_DIR/gen-verify.sh" --containment unknown
+  [ "$status" -ne 0 ]
+  run bash -p "$BUNDLE_DIR/gen-verify.sh" --containment muse --extra
+  [ "$status" -ne 0 ]
+}

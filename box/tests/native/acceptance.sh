@@ -260,9 +260,7 @@ for runtime in runsc runc; do
       else printf 'UNMET: muse/%s native echo startup\n' "$runtime"; unmet=1; fi
     fi
     # Check shared containment independently when full native readiness lacks auth.
-    cat "$bundle_dir/harnesses/$id/verify.d/00-header-$id.sh" \
-      "$bundle_dir/verify.d/10-workspace.sh" "$bundle_dir/verify.d/20-toolchain.sh" \
-      "$bundle_dir/verify.d/50-containment.sh" >"$task_root/containment.sh"
+    bash -p "$bundle_dir/gen-verify.sh" --containment "$id" >"$task_root/containment.sh"
     if env HOME="$test_home" "$launcher" "$runtime_flag" --shell -s -- README.md \
         <"$task_root/containment.sh" >"$task_root/containment.log" 2>&1; then
       printf 'PASS: %s/%s shared containment (native readiness separate)\n' "$id" "$runtime"

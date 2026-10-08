@@ -29,8 +29,14 @@ partials="$bundle_dir/verify.d"
 # --check: assert checked-in outputs equal generated output without rewriting
 # (for CI). Default regenerates the checked-in files.
 check_only=0
+containment_id=''
 if [[ "${1:-}" == "--check" ]]; then
+  [[ $# == 1 ]] || die 'Usage: gen-verify.sh [--check|--containment <id>]'
   check_only=1
+elif [[ "${1:-}" == "--containment" ]]; then
+  [[ $# == 2 && -n "$2" ]] || die 'Usage: gen-verify.sh [--check|--containment <id>]'
+  containment_id=$2
+  box_require_tool "$containment_id"
 elif [[ -n "${1:-}" ]]; then
   die "Unknown argument: $1 (usage: gen-verify.sh [--check])"
 fi
@@ -56,7 +62,7 @@ partials_found=$(find "$bundle_dir/verify.d" "$bundle_dir/harnesses" -type f -pa
   || die "verify.d/ holds $partials_found partials but gen-verify.sh lists ${#partials_expected[@]} (add the consumer or drop the file)"
 
 gen_one() {
-  local tool=${1:-} out=${2:-}
+  local tool=${1:-} out=${2:-} mode=${3:-full}
   [[ -n "$tool" && -n "$out" ]] || die 'Internal error: missing generator arguments.'
   box_require_tool "$tool"
   local tmp prev_return_trap prev_exit_trap
@@ -71,6 +77,11 @@ gen_one() {
   # Bespoke save/restore stays local: trap semantics plus bats subshell
   # caveats make a generic helper riskier than this accepted pattern.
   trap 'rm -f -- "$tmp"' RETURN EXIT
+  if [[ "$mode" == containment ]]; then
+    cat -- "$bundle_dir/harnesses/$tool/verify.d/00-header-$tool.sh" \
+      "$partials/10-workspace.sh" "$partials/20-toolchain.sh" "$partials/50-containment.sh" \
+      >"$tmp" || die "Cannot assemble containment verifier."
+  else
   cat -- \
     "$bundle_dir/harnesses/$tool/verify.d/00-header-$tool.sh" \
     "$partials/10-workspace.sh" \
@@ -81,12 +92,14 @@ gen_one() {
     "$bundle_dir/harnesses/$tool/verify.d/60-probe-$tool.sh" \
     "$bundle_dir/harnesses/$tool/verify.d/99-footer-$tool.sh" \
     >"$tmp" || die "Cannot assemble verify-$tool.sh."
+  fi
   # Resolve the readiness @@<PIN_KEY>@@ token from the single pin home (the
   # tool's registry row, pin_keys position 0 — never a per-tool branch). The
   # token must be present (a partial that drops its version check fails
   # closed here) and no @@ token may survive substitution (a typo'd key fails
   # closed too). Runs before --check/compare in both modes, so --check still
   # fails on stale or hand-edited outputs.
+  if [[ "$mode" == full ]]; then
   _tok_vkey=$(box_version_key "$tool")
   _tok_tok="@@${_tok_vkey}@@"
   grep -Fq -- "$_tok_tok" "$tmp" \
@@ -96,6 +109,7 @@ gen_one() {
   _tok_pat=$(printf '%s' "$_tok_tok" | sed -e 's/[][\\.^$*|]/\\&/g')
   _tok_esc=$(printf '%s' "$_tok_val" | sed -e 's/[\\&|]/\\&/g')
   sed -i "s|$_tok_pat|$_tok_esc|g" -- "$tmp" || die "Cannot substitute ${_tok_tok} in verify-$tool.sh."
+  fi
   # Header/footer tokens (same mechanism): every tool-specific string in the
   # 00/99 partials derives from registry data, so copy-paste across the three
   # headers cannot rot the usage/probe/label strings again.
@@ -106,6 +120,7 @@ gen_one() {
     -e "s|@@PROBE_VAR@@|_${tool}_probe|g" -e "s|@@DISPLAY@@|$_tok_display|g" -- "$tmp" \
     || die "Cannot substitute header tokens in verify-$tool.sh."
   local artifact artifact_src artifact_format artifact_json artifact_token
+  if [[ "$mode" == full ]]; then
   for artifact in $(box_tool_field "$tool" artifacts); do
     artifact_src="$bundle_dir/$(box_artifact_field "$tool" "$artifact" source)"
     artifact_format=$(box_artifact_field "$tool" "$artifact" format)
@@ -117,6 +132,7 @@ gen_one() {
     _tok_esc=$(printf '%s' "$artifact_json" | sed -e 's/[\\&|]/\\&/g')
     sed -i "s|$artifact_token|$_tok_esc|g" -- "$tmp"
   done
+  fi
   if grep -Fq '@@NATIVE_PROBE@@' "$tmp"; then
     [[ -f "$bundle_dir/harnesses/$tool/native-probe.py" ]] || die 'Missing native probe consumer.'
     python3 -I - "$tmp" "$bundle_dir/harnesses/$tool/native-probe.py" <<'PYPROBE'
@@ -163,6 +179,14 @@ PYPROBE
 # same-named globals for the @@ token substitution in gen_one.
 box_validate_registry "$bundle_dir"
 box_load_all_pins "$bundle_dir"
+
+if [[ -n "$containment_id" ]]; then
+  containment_output=$(box_mktemp_file gen-containment) || die 'Cannot stage containment output.'
+  trap 'rm -f -- "$containment_output"' EXIT
+  gen_one "$containment_id" "$containment_output" containment
+  cat -- "$containment_output"
+  exit 0
+fi
 
 _gen_outs=""
 for _gen_id in $box_tool_ids; do

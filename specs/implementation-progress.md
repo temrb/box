@@ -11,6 +11,13 @@ native/account/power-loss/architecture/release gate remains explicit. This
 completes only the baseline task, not the host-only architecture or release.
 The remaining 33 broad task checkboxes stay open.
 
+Direct native lifecycle qualification now builds a terminal/locale-only child
+environment with a fixed tool PATH, so ambient account keys, XDG/native backend
+roots, Docker selectors and shell hooks cannot enter its subprocesses. Nested
+host Bash calls use `-p`. Six provenance/privacy/environment regressions pass
+(**U**). The full run that started before this last environment guard is not
+claimed as exact-source verification of the guard; a fresh idle check is needed.
+
 Both architectures in initial run `37803020849` built all three images through
 Make and passed all four live Docker cases; both native gates correctly refused
 unregistered runsc. Verified amd64 artifact `11562881557` ZIP SHA256:

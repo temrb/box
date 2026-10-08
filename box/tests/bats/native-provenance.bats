@@ -94,3 +94,25 @@ PY
   [ "$status" -eq 0 ]
   [[ "$output" != *'synthetic-private-command-sentinel'* ]]
 }
+
+@test "native lifecycle environment cannot inherit account keys backend roots or shell hooks" {
+  run python3 -I - "$BATS_TEST_DIRNAME/../native/auth-lifecycle.py" <<'PY'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location('lifecycle', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+ambient = dict(OPENAI_API_KEY='synthetic-private-sentinel', META_API_KEY='synthetic-private-sentinel',
+               ANTHROPIC_API_KEY='synthetic-private-sentinel', AWS_ACCESS_KEY_ID='synthetic-private-sentinel',
+               CODEX_HOME='/production-native', XDG_CONFIG_HOME='/production-native',
+               DOCKER_CERT_PATH='/production-native', DOCKER_HOST='tcp://foreign:2375',
+               BASH_ENV='/production-hook', BOX_AUTH_ROOT='/production-native',
+               PATH='/untrusted-tools', HOME='/production-home', TERM='dumb', LANG='C.UTF-8')
+result = module.fixture_environment(ambient)
+assert set(result) == {'PATH', 'LANG', 'TERM'}
+assert result['PATH'] == '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+assert result['TERM'] == 'dumb'
+assert 'synthetic-private-sentinel' not in str(result)
+PY
+  [ "$status" -eq 0 ]
+}
